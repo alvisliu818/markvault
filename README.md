@@ -24,7 +24,9 @@ Rust 内核 + Markdown 存储的笔记软件。参考 [思源笔记](https://git
   - 挂载树：手动挂载任意笔记本/文件夹/文档，可嵌套、懒展开；
   - 三级排序：拖拽序（持久化）> weight 降序 > 名称升序；
   - 定位闪烁 / 聚焦模式 / 折叠状态持久化。
-- **编辑器**：CodeMirror 6，源码 + live-preview 装饰（wikilink 高亮、块 id 隐藏）、防抖自动保存、分屏渲染预览、Ctrl+S。
+- **编辑器**：CodeMirror 6，源码 + live-preview 装饰（标题行语义字号、wikilink 高亮/未解析虚线、`==高亮==`、块 id 隐藏、整行图片内联渲染）、防抖自动保存、分屏渲染预览（嵌入块/高亮/脚注）、Ctrl+S、图片粘贴上传 assets、frontmatter 表格编辑器、面包屑导航、`[[链接#锚点]]` 跳转、未解析链接点击创建。
+- **反链面板**：`/api/ref/getBacklinks` 正向引用/被谁引用/伪反链（提及）三段展示。
+- **导出**：单篇 md 下载；整笔记本 zip（`.markvault/export/`）。
 - **全文搜索**：SQLite FTS5，`<mark>` 高亮 snippet。
 - **剪藏**：`/api/clip/clipUrl` — 内核侧拉取网页 → Readability 提取 → 转 Markdown → 建档（含 source/created/tags frontmatter）。
 - **书签**：`/api/bookmark/*`，前端书签面板。
@@ -88,7 +90,9 @@ source: "https://..."    # 剪藏文档溯源
 - `/api/filetree/*` — listDocsByPath/listDocTree/createDocWithMd/renameDoc/removeDoc/moveDocs/searchDocs
 - `/api/file/*` — getFile/putFile/removeFile/renameFile/readDir
 - `/api/block|attr|outline` — getDocInfo/getBlockMd · getBlockAttrs/setBlockAttrs(frontmatter) · getDocOutline
-- `/api/search/fullTextSearchBlock`、`/api/format/renderMd`
+- `/api/ref/getBacklinks` — 反链图（正向/反向/伪反链）
+- `/api/search/fullTextSearchBlock`、`/api/format/renderMd`（含 `![[嵌入]]`/`==高亮==`/脚注）
+- `/api/export/exportMd|exportNotebookMd` — 单篇/整本导出
 - `/api/vt/*` — getRelationTree/addRoot/removeRoot/getMountTree/setMountTree/setNodeOrder/settings
 - `/api/clip/clipUrl|clipHtml`、`/api/bookmark/*`、`/api/network/forwardProxy`
 - `/api/storage/getVal|setVal`、`/api/index/rebuild`、`GET /ws`（推送 filetree-changed/vt-changed/progress）

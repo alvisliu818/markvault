@@ -1,6 +1,6 @@
 # markvault 后续任务
 
-> 状态基线：v0.1 已交付（内核 M1 / 前端 M2 / 虚拟树 M3 / Tauri M4 / 剪藏+书签 M5），单测 9/9，E2E 14/14。
+> 状态基线：v0.2 已交付（v0.1 五里程碑 + M9 编辑器体验 + 部分已知问题修复），内核单测 10/10，E2E 18/18。
 > 本文档承接 README「后续路线」与 docs/ARCHITECTURE.md「已知限制」，按里程碑组织。做完请打勾。
 
 ## M6 内嵌浏览器（Tauri 多窗口方案）
@@ -22,10 +22,10 @@
 
 - [ ] `POST /api/block/insertBlock|updateBlock|deleteBlock`：行级块操作（内部定位 = doc_path + line），写入后 `ops::reindex_one`
 - [ ] 自动补块 ID：新建块写入时用 `id::new_node_id()` 生成（思源式 14 位时间戳-7 位随机，`id.rs` 已备）
-- [ ] `GET /api/block/getBlockBreadcrumb`（按 line 回溯父级 heading 栈）
-- [ ] **反链面板**：`links` 表已有 wikilink 边；补 `/api/ref/getBacklinks`（正向：引用了谁/被谁引用），前端加"反链" dock；伪反链（搜索关键词提及）可后置
-- [ ] wikilink 自动补全（M2 遗留）：CM6 `autocompletion` 源接 `listDocTree` 数据（`editor/cm.ts` 预留位）
-- [ ] 嵌入块（`![[doc]]`）渲染：renderMd 端点解析 embed 语法并内联目标文档 HTML
+- [x] `GET /api/block/getBlockBreadcrumb`（v0.2 以面包屑组件实现：前端按 path 段渲染，父段可点击跳转）
+- [x] **反链面板**：v0.2 已交付 `/api/ref/getBacklinks`（正向 links/未解析 + 反向 backlinks + 伪反链 mentions），前端"反链" dock；块级反链待 M7 块操作落地后补充
+- [x] wikilink 自动补全：v0.2 用 CM6 docsFacet 实现**未解析链接虚线样式 + 点击创建提示**；下拉补全列表仍开放（接 `listDocTree` 数据即可）
+- [x] 嵌入块（`![[doc]]`）渲染：renderMd 端点已实现（一级展开、带标题栏和"打开"链接、相对链接按目标文档位置重写）
 
 ## M8 虚拟树补全（对照两插件残余差异）
 
@@ -36,15 +36,16 @@
 - [ ] 挂载树上下文菜单补充：提升子挂载到顶层、右键空白菜单 = 挂载选择器（对齐 obsidian 版 `view.ts`）
 - [ ] filetree 右键"挂载到挂载树"（面板已有 menu 入口，未与 filetree.ts 联通）
 
-## M9 编辑器与写作体验
+## M9 编辑器与写作体验（v0.2 主体完成）
 
-- [ ] live-preview 增强：标题行字号/加粗语义装饰（现在仅语法高亮）、`==高亮==`、脚注渲染
-- [ ] frontmatter 属性编辑器面板化（现在是 `window.prompt` 简陋版，`tabs.ts showAttrs`）：表格编辑 + parent wikilink 选择器
-- [ ] 大纲点击折叠/展开渲染区；面包屑导航（hpath 链）
-- [ ] 双链跳转细节：`[[链接#锚点]]` 定位到标题行；未解析链接虚线样式 + 创建提示
-- [ ] 图片粘贴：clipboard → `/api/file/putFile`(base64) 存入 notebook assets 并插入相对链接
-- [ ] 导出：单篇/笔记本导出 md zip（`/api/export/*`，对齐思源 exportMd/exportNotebookMd 语义）
-- [ ] `.sy` 导入：思源库迁移（解析 `.sy` JSON AST → markdown），放 `crates/kernel/src/import_sy.rs`
+- [x] live-preview 增强：标题行字号/加粗语义装饰（`mv-h1..h6` 行级装饰）、`==高亮==` 编辑器内 + 预览双端、脚注渲染（comrak footnotes）
+- [x] frontmatter 属性编辑器面板化：表格编辑（key/value 行、✕ 删除、添加行），替换 `window.prompt` 简陋版；parent wikilink 选择器（◈ 按钮列出全部文档）
+- [x] 面包屑导航（path 段渲染，父段可点击跳转对应 .md）；大纲点击跳转已有（折叠渲染区缓后）
+- [x] 双链跳转细节：`[[链接#锚点]]` 定位到标题行（先精确匹配标题文本，再退化子串匹配）；未解析链接虚线样式 + 点击创建确认
+- [x] 图片粘贴：clipboard → base64 → `/api/file/putFile` 存入 `<笔记本>/assets/paste-*.png` 并插入相对链接；编辑器内整行图片语法内联渲染成 `<img>`
+- [x] 导出：单篇 `POST /api/export/exportMd`（浏览器下载）+ 笔记本 `POST /api/export/exportNotebookMd`（STORE zip 落 `.markvault/export/`，内核自带 zip writer 含 UTF-8 文件名标志）
+- [ ] `.sy` 导入：用户决定不做
+- [x] 预览面板外部 http 链接 `window.open` 新窗口打开（原已知问题顺手修）
 
 ## M10 工程化与打包
 
@@ -52,8 +53,8 @@
 - [ ] Tauri 设置页：vault 选择对话框（代替 `%APPDATA%/markvault/config.json` 手编）、开机自启开关
 - [ ] SPA 设置面板：conf 项（port/networkServe/accessAuthCode/apiToken/parentAttr/weightAttr/ignorePatterns）可视化编辑（现在只有 getConf/setConf API）
 - [ ] 启动索引优化：全量重建改为 mtime+size 校验增量（docs 表已有 size/updated，加 `indexed_mtime` 列即可），大 vault 冷启动提速
-- [ ] 11 个 cargo warning 清理（unused id.rs/doc_summary/fm_str_array 等要么接入要么删除）；`cargo clippy --fix`
-- [ ] E2E 扩充：剪藏全链路（mock URL）、拖拽排序、forwardProxy；CI（GitHub Actions：cargo test + npm build + e2e headless）
+- [ ] cargo warning 清理（9 个：unused id.rs/doc_summary/fm_str_array/header_value/WsSink/push_progress/display 等，要么接入要么删除）；`cargo clippy --fix`
+- [ ] E2E 扩充：图片粘贴（clipboard mock）、`[[锚点]]` 跳转、未解析链接创建流；CI（GitHub Actions：cargo test + npm build + e2e headless）
 - [ ] 日志：内核 `--log-file` 选项 + 循环滚动，替代 stdout-only
 
 ## M11 更远期
@@ -66,13 +67,14 @@
 
 ## 已知问题（下个迭代顺手修）
 
-- [ ] `readDir` 会列出 `.` 开头目录（含 .markvault）——加 dot 过滤或保持"原始访问"语义并文档化
+- [x] `readDir` 列出 `.` 开头目录 —— v0.2 已加 dot 过滤（与 filetree/listDocsByPath 语义对齐）
 - [ ] listDocsByPath 的 `subFileCount` 对 folder 是全递归计数，与 obsidian 版"直接子文档数"语义不一致，二选一
 - [ ] `fmt_progress`（api/ops.rs）与 ws `push_progress` 未接线（rebuild 时上报进度）
-- [ ] tabs.ts `onOpenLink` 只处理 doc 跳转，外部 http 链接应 `window.open`
+- [x] tabs.ts `onOpenLink` 外部 http 链接处理 —— 预览面板已接 `window.open`；编辑器内 wiki 装饰本身只处理 doc 目标
 - [ ] watcher 对"目录重命名"事件会退化为全量结构广播而非精确 prefix 重索引（`serve.rs` 只按文件粒度处理）
 - [ ] preview 面板中 `/#/doc/` 链接在 Tauri 外部 URL 窗口内要验证 hash 路由兼容性
-
+- [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
+- [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：M9 编辑器体验 > M7 块级反链 > M8 虚拟树补全 > M6 内嵌浏览器 > M10 打包。
+优先级建议：M10 打包发布 > M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

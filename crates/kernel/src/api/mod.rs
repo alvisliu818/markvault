@@ -11,6 +11,9 @@ pub mod search;
 pub mod storage;
 pub mod system;
 pub mod vt;
+pub mod zip;
+pub mod export;
+pub mod refs;
 
 use crate::state::AppState;
 use axum::body::Bytes;
@@ -93,6 +96,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .nest("/api/clip", clip::routes())
         .nest("/api/bookmark", bookmark::routes())
         .nest("/api/network", network::routes())
+        .nest("/api/ref", refs::routes())
+        .nest("/api/export", export::routes())
         .nest("/api/index", index_routes())
 }
 

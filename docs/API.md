@@ -52,7 +52,8 @@
 | `/api/attr/setBlockAttrs` | `{path, attrs:{}}` | 合并进 frontmatter（value=null 删除），写盘重索引 |
 | `/api/outline/getDocOutline` | `{path}` | `[{blockId,type:"h1".."h6",content,line}]` |
 | `/api/search/fullTextSearchBlock` | `{query, limit?}` | FTS5，返回带 `<mark>` snippet |
-| `/api/format/renderMd` | `{md, path?, rewriteLinks?}` | comrak HTML；相对链接重写为 `/vault/...`，wikilink → `/#/doc/<target>` |
+| `/api/ref/getBacklinks` | `{path}` | 反链图：`links`(正向)/`unresolved`/`backlinks`(反向)/`mentions`(伪反链) |
+| `/api/format/renderMd` | `{md, path?, rewriteLinks?}` | comrak HTML；相对链接重写为 `/vault/...`，wikilink → `/#/doc/<target>`，`![[doc]]` 一级内联展开，`==高亮==`→`<mark>`，脚注 |
 | `/api/format/md2Text` | `{md}` | 去语法纯文本 |
 
 ## vt（虚拟文档树）
@@ -83,5 +84,7 @@ MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。
 |---|---|---|
 | `/api/storage/getVal` / `setVal` | `{key}` / `{key, val}` | `.markvault/storage/local/<key>.json`（折叠状态等 UI 态） |
 | `/api/index/rebuild` | — | 后台全量重建，WS 广播 `index-done` |
+| `/api/export/exportMd` | `{path}` | 单篇 md 下载（`Content-Disposition: attachment`） |
+| `/api/export/exportNotebookMd` | `{notebook}` | 整笔记本打 zip（STORE + UTF-8 名）写入 `.markvault/export/<名>.zip`，返回 `{path,count,bytes}` |
 
 `GET /ws`：推送 `{cmd,code,msg,data}`；`cmd` ∈ `filetree-changed` / `doc-reindexed{path}` / `vt-changed` / `progress` / `index-done`。

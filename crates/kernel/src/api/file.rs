@@ -198,6 +198,9 @@ async fn read_dir(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     if let Ok(rd) = std::fs::read_dir(&abs) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
             let meta = e.metadata().ok();
             entries.push(json!({
                 "name": name,

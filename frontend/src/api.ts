@@ -31,6 +31,15 @@ export async function readText(path: string): Promise<string> {
   return r.text();
 }
 
+/** POST JSON (non-envelope endpoints like export download). Returns raw Response. */
+export async function postRaw(path: string, body: unknown): Promise<Response> {
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
 export async function readBinary(path: string): Promise<ArrayBuffer> {
   const r = await getRaw("/api/file/getFile", { path });
   if (!r.ok) throw new Error(`getFile ${path}: ${r.status}`);
@@ -61,6 +70,20 @@ export interface SearchRow {
   hpath: string;
   notebook: string;
   snippet: string;
+}
+
+export interface BacklinkLink {
+  path: string;
+  raw: string;
+  anchor: string | null;
+}
+
+export interface BacklinksData {
+  path: string;
+  links: BacklinkLink[];
+  unresolved: { raw: string; anchor: string | null }[];
+  backlinks: { path: string }[];
+  mentions: { path: string }[];
 }
 
 export interface OutlineItem {
@@ -129,6 +152,7 @@ export const api = {
   ),
   // file
   putFile: (path: string, data: string) => post("/api/file/putFile", { path, data }),
+  putFileBinary: (path: string, dataBase64: string) => post("/api/file/putFile", { path, dataBase64 }),
   removeFile: (path: string) => post("/api/file/removeFile", { path }),
   renameFile: (path: string, newPath: string) => post("/api/file/renameFile", { path, newPath }),
   readDir: (path: string) => post<{ entries: { name: string; isDir: boolean; size: number; mtime: string }[] }>(
@@ -142,6 +166,8 @@ export const api = {
   getOutline: (path: string) => post<{ outline: OutlineItem[] }>("/api/outline/getDocOutline", { path }),
   // search
   fullTextSearch: (query: string) => post<SearchRow[]>("/api/search/fullTextSearchBlock", { query }),
+  // refs
+  getBacklinks: (path: string) => post<BacklinksData>("/api/ref/getBacklinks", { path }),
   // format
   renderMd: (md: string, path: string) =>
     post<{ content: string }>("/api/format/renderMd", { md, path, rewriteLinks: true }),

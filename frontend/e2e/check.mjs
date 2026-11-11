@@ -44,10 +44,10 @@ try {
   check("打开文档(首页)到编辑器", cmText.includes("欢迎来到 markvault"), cmText.slice(0, 50));
   await page.screenshot({ path: shots + "t2_open_doc.png" });
 
-  // 4. edit → autosave
+  // 4. edit → autosave (append text + a ==highlight== line)
   await page.click(".cm-content");
   await page.keyboard.press("Control+End");
-  await page.keyboard.type("\n\nE2E编辑测试行");
+  await page.keyboard.type("\n\nE2E编辑测试行\n\n==E2E高亮测试==");
   await page.waitForTimeout(1400); // debounce 900ms + save
   const saved = await page.evaluate(async () => {
     const r = await fetch("/api/file/getFile", {
@@ -57,19 +57,36 @@ try {
     });
     return r.text();
   });
-  check("编辑自动保存到内核", saved.includes("E2E编辑测试行"));
+  check("编辑自动保存到内核", saved.includes("E2E编辑测试行") && saved.includes("==E2E高亮测试=="));
   await page.screenshot({ path: shots + "t3_edit_save.png" });
 
   // 5. preview
   await page.click('button:has-text("预览")');
   await page.waitForSelector(".preview-pane:not(.hidden)", { timeout: 5000 });
+  await page.waitForFunction(
+    () => document.querySelector(".preview-pane")?.textContent?.includes("E2E编辑测试行"),
+    { timeout: 8000 }
+  );
   const prev = await page.textContent(".preview-pane");
   check("渲染预览", prev.includes("欢迎来到 markvault") && prev.includes("E2E编辑测试行"));
+  const markCount = await page.locator(".preview-pane mark").count();
+  check("预览==高亮==渲染", markCount > 0, `mark=${markCount}`);
   await page.screenshot({ path: shots + "t4_preview.png" });
 
   // 6. outline
   const outline = await page.textContent(".mv-right .dock-page:not(.hidden)");
   check("大纲面板", outline.includes("首页") || outline.includes("(无标题)"), outline.slice(0, 40));
+
+  // 6b. breadcrumb
+  const bc = await page.textContent(".breadcrumb");
+  check("面包屑导航", bc.includes("笔记本A") && bc.includes("首页"), bc);
+
+  // 6c. backlink panel: 首页 links to 计划/随笔 -> 引用了谁
+  await page.click('.mv-right .dock-tab:has-text("反链")');
+  await page.waitForTimeout(800);
+  const bkText = await page.textContent(".mv-right .dock-page:not(.hidden)");
+  check("反链面板-引用了谁", bkText.includes("引用了谁") && bkText.includes("计划") && bkText.includes("随笔"), bkText.slice(0, 60));
+  await page.screenshot({ path: shots + "t5b_backlinks.png" });
 
   // 7. search panel
   await page.click('.mv-right .dock-tab:has-text("搜索")');
@@ -115,6 +132,20 @@ try {
   // 10c. clip button exists (kernel clip verified separately via API test)
   const clipBtnVisible = await page.locator('.mv-toolbar button:has-text("剪藏")').isVisible();
   check("剪藏按钮", clipBtnVisible);
+
+  // 10d. export notebook -> writes zip into .markvault/export
+  await page.click('.mv-toolbar button:has-text("导出笔记本")');
+  await page.waitForTimeout(800);
+  const zipExists = await page.evaluate(async () => {
+    const r = await fetch("/api/file/readDir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: ".markvault/export" }),
+    });
+    const j = await r.json();
+    return j.code === 0 && (j.data.entries || []).some((e) => e.name.endsWith(".zip"));
+  });
+  check("导出笔记本 zip", zipExists);
 
   // 11. new doc via toolbar flow (API-backed UI) — switch back to 文件 tab first
   await page.click('.mv-dock .dock-tab:has-text("文件")');

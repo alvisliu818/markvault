@@ -5,6 +5,7 @@ import { TabManager } from "../tabs";
 import { FileTreePanel } from "../panels/filetree";
 import { SearchPanel } from "../panels/search";
 import { OutlinePanel } from "../panels/outline";
+import { BacklinkPanel } from "../panels/backlinks";
 import { BookmarkPanel } from "../panels/bookmark";
 import { VTreePanel } from "../vtree/panel";
 import { editorTheme } from "../editor/cm";
@@ -13,14 +14,16 @@ import { editorTheme } from "../editor/cm";
  * Main application shell:
  *   toolbar / [dock | center | right-panel]
  * dock has tabs: 文件 / 虚拟树
- * right has tabs: 大纲 / 搜索
+ * right has tabs: 大纲 / 反链 / 搜索 / 书签
  */
 export class App {
   tabs!: TabManager;
   private outline!: OutlinePanel;
+  private backlinks!: BacklinkPanel;
   private filetree!: FileTreePanel;
   private vtree!: VTreePanel;
   private statusEl!: HTMLElement;
+  private breadcrumbEl!: HTMLElement;
   private dockPages: Record<string, HTMLElement> = {};
   private docIndex: { path: string; title: string }[] = [];
 
@@ -30,7 +33,8 @@ export class App {
     const themeBtn = el("button", "btn", "主题");
     const rebuildBtn = el("button", "btn", "重建索引");
     const clipBtn = el("button", "btn", "剪藏");
-    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, themeBtn);
+    const exportNbBtn = el("button", "btn", "导出笔记本");
+    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, themeBtn);
 
     const main = el("div", "mv-main");
     const dock = el("div", "mv-dock");
@@ -49,23 +53,26 @@ export class App {
     ], { file: filePage, vt: vtPage });
     dock.append(dockTabs, filePage, vtPage);
 
-    // editor area
+    // editor area (breadcrumb above tabs)
+    this.breadcrumbEl = el("div", "breadcrumb hidden");
     const edBar = el("div", "editor-tabs");
     const edArea = el("div", "editor-area");
     this.statusEl = el("div", "status-bar", "就绪");
-    center.append(edBar, edArea, this.statusEl);
+    center.append(this.breadcrumbEl, edBar, edArea, this.statusEl);
 
     // right panel
     const rightTabs = el("div", "dock-tabs");
     const outlinePage = el("div", "dock-page");
+    const backlinkPage = el("div", "dock-page hidden");
     const searchPage = el("div", "dock-page hidden");
     const bookmarkPage = el("div", "dock-page hidden");
     this.addTabBar(rightTabs, [
       { key: "outline", label: "大纲" },
+      { key: "backlink", label: "反链" },
       { key: "search", label: "搜索" },
       { key: "bookmark", label: "书签" },
-    ], { outline: outlinePage, search: searchPage, bookmark: bookmarkPage });
-    right.append(rightTabs, outlinePage, searchPage, bookmarkPage);
+    ], { outline: outlinePage, backlink: backlinkPage, search: searchPage, bookmark: bookmarkPage });
+    right.append(rightTabs, outlinePage, backlinkPage, searchPage, bookmarkPage);
 
     main.append(dock, dockResizer, center, right);
     root.append(toolbar, main);
@@ -74,10 +81,16 @@ export class App {
     this.tabs = new TabManager(edBar, edArea, (s) => (this.statusEl.textContent = s), {
       onTitleChange: () => void this.refreshTitle(),
       onOutlineRefresh: (p) => void this.outline.refresh(p),
+      onBacklinksRefresh: (p) => this.backlinks.schedule(p),
       onStatus: (s) => (this.statusEl.textContent = s),
-      resolveLink: (target) => this.resolveLink(target),
+      onBreadcrumb: (p) => this.renderBreadcrumb(p),
+      resolveLink: (target, anchor) => this.resolveLink(target, anchor),
+      docsProvider: () => this.docIndex,
     });
     this.outline = new OutlinePanel(outlinePage, (line) => this.jumpToLine(line));
+    this.backlinks = new BacklinkPanel(backlinkPage, {
+      openDoc: (p, t) => void this.tabs.open(p, t),
+    });
     this.filetree = new FileTreePanel(filePage, {
       openDoc: (p, t) => void this.tabs.open(p, t),
       onAddRoot: async (p) => {
@@ -121,6 +134,19 @@ export class App {
         void this.tabs.open(r.path, r.title);
       } catch (e) {
         toast("剪藏失败: " + (e as Error).message);
+      }
+    };
+    exportNbBtn.onclick = async () => {
+      const nb = this.docIndex[0]?.path.split("/")[0];
+      if (!nb) {
+        toast("无笔记本可导出");
+        return;
+      }
+      try {
+        const r = (await post<{ path: string; count: number }>("/api/export/exportNotebookMd", { notebook: nb })) as any;
+        toast(`已导出 ${r.count} 个文件 → ${r.path}`);
+      } catch (e) {
+        toast("导出失败: " + (e as Error).message);
       }
     };
     themeBtn.onclick = () => {
@@ -188,6 +214,8 @@ export class App {
     try {
       const { docs } = await api.listDocTree();
       this.docIndex = docs.map((d) => ({ path: d.path.replace(/^\//, ""), title: d.title }));
+      // push fresh index into all open editors (wikilink resolved styling)
+      for (const t of this.tabs.tabs) this.tabs.refreshEditorContext(t);
     } catch {
       /* ignore */
     }
@@ -197,7 +225,7 @@ export class App {
     await this.refreshDocIndex();
   }
 
-  async resolveLink(target: string): Promise<string | null> {
+  async resolveLink(target: string, anchor?: string): Promise<string | null> {
     // path (with/without .md) > title > basename
     const t = target.replace(/^\[\[|\]\]$/g, "").trim();
     const withMd = t.endsWith(".md") ? t : t + ".md";
@@ -207,11 +235,34 @@ export class App {
       this.docIndex.find((d) => d.title === t) ||
       this.docIndex.find((d) => d.path.split("/").pop()?.replace(/\.md$/, "") === t);
     if (hit) {
-      await this.tabs.open(hit.path, hit.title);
+      await this.tabs.open(hit.path, hit.title, anchor);
       return hit.path;
     }
     toast(`链接未找到: ${t}`);
     return null;
+  }
+
+  private renderBreadcrumb(path: string | null) {
+    this.breadcrumbEl.innerHTML = "";
+    if (!path) {
+      this.breadcrumbEl.classList.add("hidden");
+      return;
+    }
+    this.breadcrumbEl.classList.remove("hidden");
+    const segs = path.replace(/\.md$/, "").split("/").filter(Boolean);
+    segs.forEach((seg, i) => {
+      if (i > 0) this.breadcrumbEl.append(el("span", "bc-sep", "›"));
+      const crumb = el("span", "bc-item" + (i === segs.length - 1 ? " current" : ""), seg);
+      if (i < segs.length - 1) {
+        // click a parent segment -> open that doc if it exists as .md
+        const prefix = segs.slice(0, i + 1).join("/") + ".md";
+        crumb.onclick = () => {
+          const hit = this.docIndex.find((d) => d.path === prefix);
+          if (hit) void this.tabs.open(hit.path, hit.title);
+        };
+      }
+      this.breadcrumbEl.append(crumb);
+    });
   }
 
   jumpToLine(line: number) {
