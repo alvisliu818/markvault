@@ -228,6 +228,51 @@ export const api = {
     post("/api/petal/setPetals", { petals }),
   getPetalConf: <T>(name: string) => post<T>("/api/petal/getPetalConf", { name }),
   setPetalConf: (name: string, conf: unknown) => post("/api/petal/setPetalConf", { name, conf }),
+  // livesync read-only pull (/api/sync/*) — S1-S4, credentials live in kernel env
+  syncGetStatus: () =>
+    post<{
+      configured: boolean;
+      phase: string;
+      lastResult: number;
+      lastError: string;
+      lastSync: number;
+      idKeyPresent: boolean;
+    }>("/api/sync/getStatus"),
+  syncGetSourceState: () =>
+    post<{
+      source: string;
+      remoteObjects: number;
+      shards: number;
+      bytes: number;
+      latestShard: string;
+      localSyncPoint: string;
+      readonly: boolean;
+    }>("/api/sync/getSourceState"),
+  syncPlanPull: (p: { full?: boolean; limit?: number }) =>
+    post<{ planId: string; token: string; mode: string; phase: string }>("/api/sync/planPull", p),
+  syncGetPlan: (planId: string) =>
+    post<{
+      planId: string;
+      mode: string;
+      phase: string;
+      progress: number;
+      progressTotal: number;
+      error: string | null;
+      done: boolean;
+      shards: number;
+      skippedShards: number;
+      lines: number;
+      parseErrors: number;
+      docsTotal: number;
+      docsComplete: number;
+      docsPartial: number;
+      docsUncovered: number;
+      chunks: number;
+    }>("/api/sync/getPlan", { planId }),
+  syncApplyPull: (p: { planId: string; token: string; target: string; notebook?: string; includePartial?: boolean }) =>
+    post<Record<string, unknown>>("/api/sync/applyPull", p),
+  repoInitKey: (passphrase: string) =>
+    post<{ enabled: boolean; verifier?: string; kdf?: string }>("/api/repo/initKey", { passphrase }),
 };
 
 // ---- WebSocket push ----

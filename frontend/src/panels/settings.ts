@@ -12,6 +12,7 @@ interface ConfData {
     weightAttr: string;
     ignorePatterns: string[];
     theme: number;
+    repoEncryption?: boolean;
   };
   workspace: string;
 }
@@ -218,6 +219,158 @@ export async function showSettings() {
       c.onchange = savePetals;
     });
   })();
+
+  // ---- LiveSync read-only pull (kernel API; credentials live in kernel env) ----
+  void (async () => {
+    let status: Awaited<ReturnType<typeof api.syncGetStatus>>;
+    try {
+      status = await api.syncGetStatus();
+    } catch {
+      return; // kernel without sync support
+    }
+    const syncBody = status.configured
+      ? `<div class="set-hint" id="sync-state">状态加载中…</div>
+         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+           <button class="btn" id="sync-refresh">刷新远端状态</button>
+           <button class="btn" id="sync-plan">拉取计划（增量）</button>
+           <button class="btn" id="sync-plan-full">拉取计划（全量）</button>
+         </div>
+         <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+           <input type="text" id="sync-notebook" placeholder="导入笔记本名（默认 livesync）" style="flex:1;min-width:160px" />
+           <label style="font-size:12px"><input type="checkbox" id="sync-partial" /> 含部分命中的笔记</label>
+         </div>
+         <div style="display:flex;gap:6px;margin-top:6px">
+           <button class="btn primary" id="sync-import">导入到 vault</button>
+           <button class="btn" id="sync-export">导出到目录</button>
+         </div>
+         <div class="set-hint">远端只读（GET/LIST）；导入只新增、绝不覆盖已有笔记；进度经 WS sync-progress 推送</div>`
+      : `<div class="set-hint">未配置：需以 MARKVAULT_SYNC_* 环境变量启动内核（键名见 docs/API.md 的 sync 节）</div>`;
+    (dialog.querySelector(".actions") as HTMLElement).insertAdjacentHTML(
+      "beforebegin",
+      `<div class="set-row">
+        <label class="set-label">同步</label>
+        <div class="set-input" id="set-sync">${syncBody}</div>
+      </div>`
+    );
+    if (!status.configured) return;
+    const stateEl = () => dialog.querySelector("#sync-state") as HTMLElement | null;
+    const setState = (msg: string) => {
+      const el = stateEl();
+      if (el) el.textContent = msg;
+    };
+    let lastPlan: { planId: string; token: string } | null = null;
+    const busy = (msg: string) => {
+      setState(msg);
+      for (const id of ["sync-refresh", "sync-plan", "sync-plan-full", "sync-import", "sync-export"]) {
+        const b = dialog.querySelector(`#${id}`) as HTMLButtonElement | null;
+        if (b) b.disabled = true;
+      }
+    };
+    const idle = () => {
+      for (const id of ["sync-refresh", "sync-plan", "sync-plan-full", "sync-import", "sync-export"]) {
+        const b = dialog.querySelector(`#${id}`) as HTMLButtonElement | null;
+        if (b) b.disabled = false;
+      }
+    };
+    (dialog.querySelector("#sync-refresh") as HTMLElement).onclick = () => {
+      void (async () => {
+        try {
+          busy("刷新远端状态…");
+          const s = await api.syncGetSourceState();
+          setState(`远端 ${s.shards} 分片 / ${(s.bytes / 1048576).toFixed(1)} MB · 最新 ${s.latestShard.slice(0, 24)}… · 本地水位 ${s.localSyncPoint || "无"}`);
+        } catch (e) {
+          setState("刷新失败: " + (e as Error).message);
+        } finally {
+          idle();
+        }
+      })();
+    };
+    const runPlan = (full: boolean) => {
+      void (async () => {
+        try {
+          busy(full ? "全量拉取中（分片较多，请耐心等待）…" : "增量拉取中…");
+          const p = await api.syncPlanPull({ full, limit: 0 });
+          lastPlan = { planId: p.planId, token: p.token };
+          for (;;) {
+            const s = await api.syncGetPlan(p.planId);
+            if (s.done) {
+              if (s.error) {
+                setState("拉取失败: " + s.error);
+                toast("拉取失败: " + s.error);
+              } else {
+                setState(`拉取完成：${s.shards} 分片（跳过 ${s.skippedShards}）· ${s.lines} 行 · ${s.parseErrors} 解析错误 · 笔记 ${s.docsTotal}（完整 ${s.docsComplete} / 部分 ${s.docsPartial} / 未覆盖 ${s.docsUncovered}）`);
+                toast(`拉取完成：笔记 ${s.docsTotal} 篇`);
+              }
+              break;
+            }
+            setState(`${s.phase} ${s.progress}/${s.progressTotal} …`);
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+        } catch (e) {
+          setState("拉取失败: " + (e as Error).message);
+        } finally {
+          idle();
+        }
+      })();
+    };
+    (dialog.querySelector("#sync-plan") as HTMLElement).onclick = () => runPlan(false);
+    (dialog.querySelector("#sync-plan-full") as HTMLElement).onclick = () => runPlan(true);
+    const apply = (target: "import" | "export") => {
+      void (async () => {
+        if (!lastPlan) {
+          toast("请先拉取计划");
+          return;
+        }
+        const notebook = (dialog.querySelector("#sync-notebook") as HTMLInputElement).value.trim() || "livesync";
+        const includePartial = (dialog.querySelector("#sync-partial") as HTMLInputElement).checked;
+        try {
+          busy(target === "import" ? "导入中…" : "导出中…");
+          const r = (await api.syncApplyPull({ planId: lastPlan.planId, token: lastPlan.token, target, notebook, includePartial })) as Record<string, unknown>;
+          if (target === "import") {
+            setState(`导入完成：新增 ${r.imported} · 已存在跳过 ${r.skippedExisting} · 部分跳过 ${r.skippedPartial} · 错误 ${r.errors}`);
+            toast(`导入完成：新增 ${r.imported} 篇笔记`);
+          } else {
+            setState(`导出完成：${r.applied} 篇 → ${String(r.manifest).slice(0, 60)}…`);
+            toast(`导出完成：${r.applied} 篇`);
+          }
+        } catch (e) {
+          setState(target + " 失败: " + (e as Error).message);
+        } finally {
+          idle();
+        }
+      })();
+    };
+    (dialog.querySelector("#sync-import") as HTMLElement).onclick = () => apply("import");
+    (dialog.querySelector("#sync-export") as HTMLElement).onclick = () => apply("export");
+  })();
+
+  // ---- snapshot repo encryption (/api/repo/initKey, SiYuan Conf.Repo.Key style) ----
+  (dialog.querySelector(".actions") as HTMLElement).insertAdjacentHTML(
+    "beforebegin",
+    `<div class="set-row">
+      <label class="set-label">快照加密</label>
+      <div class="set-input">
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="password" id="repo-pass" placeholder="${c.repoEncryption ? "输入新口令更换 / 留空提交即关闭" : "设置口令以加密快照"}" style="flex:1" />
+          <button class="btn" id="repo-init">应用</button>
+        </div>
+        <div class="set-hint" id="repo-state">${c.repoEncryption ? "已开启（密文快照；S6 之前的明文快照仍可读）" : "未开启（快照明文存储）"}</div>
+      </div>
+    </div>`
+  );
+  (dialog.querySelector("#repo-init") as HTMLElement).onclick = () => {
+    void (async () => {
+      const pass = (dialog.querySelector("#repo-pass") as HTMLInputElement).value;
+      try {
+        const r = await api.repoInitKey(pass);
+        const el = dialog.querySelector("#repo-state") as HTMLElement | null;
+        if (el) el.textContent = r.enabled ? `已开启（verifier ${r.verifier ?? ""}；旧明文快照仍可读）` : "未开启（快照明文存储）";
+        toast(r.enabled ? "快照加密已开启" : "快照加密已关闭");
+      } catch (e) {
+        toast("设置失败: " + (e as Error).message);
+      }
+    })();
+  };
 
   (dialog.querySelector(".ok") as HTMLElement).onclick = () => {
     void (async () => {

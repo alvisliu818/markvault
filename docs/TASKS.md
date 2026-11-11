@@ -90,9 +90,9 @@
 
 | 任务 | 状态 | 说明与依赖 |
 |---|---|---|
-| **LiveSync 对接** | 侦察完成 / 只读 MVP 待实现 | **实际后端是 MinIO/S3 journal sync（非 CouchDB）**：`<毫秒>-docs.jsonl.gz` 加密分片 + `sync-parameters`。当前插件 1.0.47：E2EE v2、路径混淆、ID 派生 v1（恢复码）。已验证只读 LIST + PBKDF2(310k)→HKDF→AES-GCM 分片解密 → raw deflate → JSONL 全链路（口令有效）；配置层由另一把口令保护、只读拉取不需要。**S1-S6 已交付、S7 边界定案（内核 API 形态）**：`/api/sync/*` 六端点（含 `getPlan` 进度轮询）、34/34 单测；S1 分片解密与元数据预览、S2 chunk 行格式（`~h:+<id>\u{1f}<内容>`）与正文导出、S3 后台任务 + 增量水位 + chunk 内容寻址落盘 + 跨分片合并、S4 受控导入（实机 9 篇、FTS 可见）、**S5 进度推前端**（`sync-progress/sync-done` WS 事件，浏览器实机验证）、**S6 快照加密**（`/api/repo/initKey` 口令派生 + AES-256-GCM，legacy 明文兼容，实机密文落盘/解密/关闭回退）。**S7**：本地半边（vault ↔ repo 快照双向）已闭环；LiveSync 上传方向明确不做（风险边界见 [sync-architecture.md](sync-architecture.md) §S7）。剩余：全量首拉（约 775MB）未实测、前端同步 UI、导出笔记入索引的 `index` 直连目标。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md)；已参考思源内核同步实现产出 [sync-architecture.md](sync-architecture.md)（接口契约 + S1-S7 实现顺序，红线：只读阶段不回写 `.md`） |
+| **LiveSync 对接** | 侦察完成 / 只读 MVP 待实现 | **实际后端是 MinIO/S3 journal sync（非 CouchDB）**：`<毫秒>-docs.jsonl.gz` 加密分片 + `sync-parameters`。当前插件 1.0.47：E2EE v2、路径混淆、ID 派生 v1（恢复码）。已验证只读 LIST + PBKDF2(310k)→HKDF→AES-GCM 分片解密 → raw deflate → JSONL 全链路（口令有效）；配置层由另一把口令保护、只读拉取不需要。**S1-S6 已交付、S7 边界定案（内核 API 形态）**：`/api/sync/*` 六端点（含 `getPlan` 进度轮询）、34/34 单测；S1 分片解密与元数据预览、S2 chunk 行格式（`~h:+<id>\u{1f}<内容>`）与正文导出、S3 后台任务 + 增量水位 + chunk 内容寻址落盘 + 跨分片合并、S4 受控导入（实机 9 篇、FTS 可见）、**S5 进度推前端**（`sync-progress/sync-done` WS 事件 + 设置面板「同步」区 UI：状态/增量/全量/导入/导出，浏览器实机验证）、**S6 快照加密**（`/api/repo/initKey` 口令派生 + AES-256-GCM，legacy 明文兼容，实机密文落盘/解密/关闭回退）。**S7**：本地半边（vault ↔ repo 快照双向）已闭环；LiveSync 上传方向明确不做（风险边界见 [sync-architecture.md](sync-architecture.md) §S7）。剩余：全量首拉实测中（约 775MB）、导出笔记入索引的 `index` 直连目标。另：petal/repo 加密条目中的快照部分已由本项交付。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md)；已参考思源内核同步实现产出 [sync-architecture.md](sync-architecture.md)（接口契约 + S1-S7 实现顺序，红线：只读阶段不回写 `.md`） |
 | **Tauri mobile 构建** | 未做 | Android/iOS 打包需对应 SDK 环境（本机 Windows 只能走 Android 路线）；SPA 响应式已交付，此项纯构建配置层 |
-| **petal / repo 加密** | 未做 | 快照仓库（repo/）与插件存储均为 plaintext MVP；需设计密钥管理（思源是快照口令派生） |
+| **petal 加密** | 未做 | 插件存储为 plaintext；repo 快照加密已由 S6 交付（`/api/repo/initKey` 口令派生 + AES-256-GCM）；petal 侧密钥管理待设计 |
 | **petal 集市** | 未做 | 插件市场/分发（列表、下载、更新），生态成型后再做；当前只支持本地安装 |
 
 ### 验证项（代码已交付，需人工点验）
