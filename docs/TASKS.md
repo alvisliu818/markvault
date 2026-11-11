@@ -1,6 +1,6 @@
 # markvault 后续任务
 
-> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器），内核单测 22/22，E2E 24/24。
+> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 已知问题修复），内核单测 22/22，E2E 26/26。
 > 本文档承接 README「后续路线」与 docs/ARCHITECTURE.md「已知限制」，按里程碑组织。做完请打勾。
 
 ## M6 内嵌浏览器（Tauri 多窗口方案，v0.3 完成）
@@ -51,7 +51,7 @@
 ## M10 工程化与打包（v0.2 完成）
 
 - [x] **Tauri release 打包**：NSIS 安装包 `markvault_0.2.0_x64-setup.exe`（6.27 MiB，内核 sidecar + 前端资源）；`scripts/build-release.ps1` 一键流程（kernel release → sidecar 拷为 `<名>-<target-triple>.exe` → 前端构建 → tauri build）；图标 15 件套（PIL 生成）；冒烟验证 release 壳拉起 sidecar 内核（随机端口 + --log-file）
-- [ ] Tauri 设置页：vault 选择对话框（代替 `%APPDATA%/markvault/config.json` 手编）、开机自启开关 —— SPA 设置面板已可改 conf，壳侧对话框缓后
+- [x] **Tauri 设置页**：vault 选择对话框（`settings.rs` `pick_vault_dir` rfd 原生对话框 → `set_workspace` 写 `%APPDATA%/markvault/config.json`，重启生效）+ 开机自启开关（`set_autostart` 写 HKCU Run 注册表键）——SPA 设置面板壳区（仅 `__TAURI__` 环境显示）；kernel conf 项仍在 SPA 面板（settings.ts）
 - [x] SPA 设置面板：conf 项（port/networkServe/accessAuthCode/apiToken/readonly/parentAttr/weightAttr/ignorePatterns）可视化编辑（toolbar「设置」按钮，settings.ts）
 - [x] 启动索引优化：`index_meta` 表存 mtime_ms+size 戳，boot 命中即跳过解析（测试库二次启动索引阶段 62ms/8 docs）；手动「重建索引」走 force 全量；boot 与 rebuild 均接 WS progress（每 20 篇上报，原已知问题一并闭环）
 - [x] cargo warning 清零（id.rs 删除、doc_summary/fm_str_array/fm_number 转 cfg(test)、WsSink/header_value/ParseLink.display 删除）
@@ -69,13 +69,13 @@
 ## 已知问题（下个迭代顺手修）
 
 - [x] `readDir` 列出 `.` 开头目录 —— v0.2 已加 dot 过滤（与 filetree/listDocsByPath 语义对齐）
-- [ ] listDocsByPath 的 `subFileCount` 对 folder 是全递归计数，与 obsidian 版"直接子文档数"语义不一致，二选一
+- [x] listDocsByPath 的 `subFileCount` 对 folder 是全递归计数，与 obsidian 版"直接子文档数"语义不一致，二选一 —— v0.3 统一为直接子文档数（`count_md_direct`：`LIKE dir/% AND NOT LIKE dir/%/%`），E2E 断言防回归
 - [x] `fmt_progress` 与 ws `push_progress` 未接线 —— v0.2 boot/rebuild 均已上报（每 20 篇 + 收尾）
 - [x] tabs.ts `onOpenLink` 外部 http 链接处理 —— 预览面板已接 `window.open`；编辑器内 wiki 装饰本身只处理 doc 目标
-- [ ] watcher 对"目录重命名"事件会退化为全量结构广播而非精确 prefix 重索引（`serve.rs` 只按文件粒度处理）
+- [x] watcher 对"目录重命名"事件会退化为全量结构广播而非精确 prefix 重索引（`serve.rs` 只按文件粒度处理）—— v0.3 修复，且顺藤摸出**两个更深的 bug**：①`start_watcher` 的 debouncer 是局部变量，函数返回即 drop，**watcher 自 v0.1 起从未真正工作过**（boot 全量索引 + API 内部 reindex 掩盖）；②debouncer-full 把 verbatim 路径归一化成 `//?/E:/...` 形式，Windows path parser 不认，`vault.rel` 的 strip_prefix 全部失败——加 `normalize_win` 字符串级前缀回退。修复后目录改名 = 精确 prefix 重索引（unindex 旧路径 + `reindex_prefix` 新路径），E2E 断言防回归
 - [ ] preview 面板中 `/#/doc/` 链接在 Tauri 外部 URL 窗口内要验证 hash 路由兼容性
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：~~M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器~~（均已交付）；剩余 M10 设置页对话框 > 已知问题清理 > M11。
+优先级建议：~~M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器~~（均已交付）；~~M10 设置页~~、~~已知问题（subFileCount/watcher）~~ 已清；剩 preview `/#/doc/` 壳内验证 > M11 更远期。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

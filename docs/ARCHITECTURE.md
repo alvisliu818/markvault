@@ -40,12 +40,14 @@ app/src-tauri/          Tauri v2 壳
                         6 个 browser_* IPC 命令（open/navigate/act/close/focus/list）+ 500ms 轮询
                         （url/title 变化 → 事件广播到主窗口 + 注入收藏/剪藏操作栏）；capabilities/main.json
                         为 remote 主窗口授权（allow-browser-*）
+└── src/settings.rs     壳侧设置（M10）：pick_vault_dir（rfd 原生目录对话框）→ set_workspace 写
+                        %APPDATA%/markvault/config.json；set_autostart 写 HKCU Run 注册表键；get_shell_conf
 ```
 
 ## 数据流
 
 1. **写**：前端编辑 → 防抖 900ms → `POST /api/file/putFile` → vault.rs 写文件 → `ops::reindex_one` 重索引该文件 → WS 广播 `doc-reindexed`/`filetree-changed`。
-2. **外部改**：notify-debouncer-full 监听 vault → 过滤 `.` 目录与 ignore 模式 → 对 .md reindex_one / unindex → 广播。`.markvault/` 完全跳过避免自触发。
+2. **外部改**：notify-debouncer-full 监听 vault → 过滤 `.` 目录与 ignore 模式 → 对 .md reindex_one / unindex；**目录级事件（新建/删除/改名）走精确 prefix 重索引**（旧路径 `unindex("<dir>/")` 防兄弟目录误删，新路径 `reindex_prefix` 扫描重建）→ 广播。`.markvault/` 完全跳过避免自触发。注意 `vault.rel` 需容忍 debouncer-full 的 forward-slash verbatim 路径（`//?/E:/...`）——字符串级前缀回退在 vault.rs normalize_win。
 3. **关系树**：`/api/vt/getRelationTree` 时从索引读全部 docs（frontmatter `parent`/`weight`）→ 解析 wikilink（路径精确 > 标题 > 基名）→ 构树（ancestors 环检测、分支复制）→ 兄弟消歧 → 排序（customOrder > weight desc > name asc）→ 返回树 JSON。结构不持久化，只持久化意图（roots/拖拽序/设置，`vt.json`）。
 4. **剪藏**：`/api/clip/clipUrl` → reqwest 拉取 → dom_smoothie(Readability) → htmd → 拼 frontmatter（source/created/tags）→ `create_doc_internal` 复用建文档路径（写入+索引+广播）。
 5. **内嵌浏览器（M6）**：SPA 浏览器面板 = 控制器（页签列表/地址栏/前进后退/剪藏/收藏/下载），壳 `browser.rs` = 窗口组管理。页签窗口 URL/title 由壳轮询并以 `browser:*` 事件推回主窗口；SPA 收到 url 变化即 `POST /api/history/add`（内核 10min 去重+5000 上限）。页面内操作（收藏/剪 HTML）由壳 eval 注入的操作栏完成——页面上下文 fetch 内核（本地 Host 信任放行 + CORS very_permissive），登录页 DOM 内核拿不到，这正是 `clipHtml` 存在的理由。

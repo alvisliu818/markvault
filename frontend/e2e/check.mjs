@@ -187,7 +187,49 @@ try {
     JSON.stringify(dl).slice(0, 80)
   );
 
-  // cleanup: downloaded asset + seeded history
+  // 10g. watcher: directory create/rename -> precise prefix reindex (no manual
+  // rebuild) + subFileCount direct-child semantics (Obsidian parity)
+  const tv = new URL("../../testvault/", import.meta.url).pathname.replace(/^\/([A-Za-z]):/, "$1:");
+  const { mkdirSync, writeFileSync, renameSync, rmSync } = await import("node:fs");
+  const dir1 = tv + "笔记本A/E2E目录";
+  mkdirSync(dir1 + "/子", { recursive: true });
+  writeFileSync(dir1 + "/直接.md", "---\ntitle: 直接\n---\n\nmvWatcherE2Exyz 直接子文档\n");
+  writeFileSync(dir1 + "/子/深层.md", "---\ntitle: 深层\n---\n\nmvWatcherE2E深层标记\n");
+  await page.waitForTimeout(1600); // watcher debounce 300ms + index
+  const sub = await page.evaluate(async () => {
+    const r = await fetch("/api/filetree/listDocsByPath", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notebook: "笔记本A", path: "/" }),
+    });
+    const j = await r.json();
+    return (j.data.files || []).find((f) => f.name === "E2E目录");
+  });
+  check(
+    "subFileCount 直接子文档数",
+    sub && sub.subFileCount === 1,
+    `subFileCount=${sub?.subFileCount}`
+  );
+  const renameDir = tv + "笔记本A/E2E目录改名";
+  renameSync(dir1, renameDir);
+  await page.waitForTimeout(1600);
+  const renamed = await page.evaluate(async () => {
+    const r = await fetch("/api/search/fullTextSearchBlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "mvWatcherE2Exyz" }),
+    });
+    const j = await r.json();
+    return (j.data || []).map((d) => d.path);
+  });
+  check(
+    "watcher 目录改名-索引跟随新路径",
+    renamed.length > 0 && renamed.every((p) => p.includes("E2E目录改名")),
+    JSON.stringify(renamed).slice(0, 100)
+  );
+
+  // cleanup: downloaded asset + seeded history + watcher test dir
+  rmSync(renameDir, { recursive: true, force: true });
   await page.evaluate(async () => {
     await fetch("/api/file/removeFile", {
       method: "POST",

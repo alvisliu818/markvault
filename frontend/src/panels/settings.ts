@@ -60,6 +60,66 @@ export async function showSettings() {
     </div>`;
 
   (dialog.querySelector(".cancel") as HTMLElement).onclick = () => mask.remove();
+
+  // ---- shell-only section: vault picker + autostart (Tauri IPC) ----
+  const ta = (window as any).__TAURI__ as
+    | { core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<any> } }
+    | undefined;
+  if (ta) {
+    void (async () => {
+      let shell: { workspace: string; autostart: boolean } | null = null;
+      try {
+        shell = await ta.core.invoke("get_shell_conf");
+      } catch {
+        return;
+      }
+      (dialog.querySelector(".actions") as HTMLElement).insertAdjacentHTML(
+        "beforeend",
+        `<div class="set-row">
+          <label class="set-label">vault 目录</label>
+          <div class="set-input">
+            <span class="set-shell-ws">${escapeHtml(shell?.workspace || "")}</span>
+            <button class="btn" id="set-pick-vault">更改…</button>
+            <div class="set-hint">写入 %APPDATA%/markvault/config.json，重启 markvault 生效</div>
+          </div>
+        </div>
+        <div class="set-row">
+          <label class="set-label">开机自启</label>
+          <div class="set-input">
+            <input type="checkbox" id="set-autostart" ${shell?.autostart ? "checked" : ""} />
+          </div>
+        </div>`
+      );
+      (dialog.querySelector("#set-pick-vault") as HTMLElement).onclick = () => {
+        void (async () => {
+          try {
+            const dir = await ta.core.invoke("pick_vault_dir");
+            if (!dir) return;
+            await ta.core.invoke("set_workspace", { path: dir });
+            const wsEl = dialog.querySelector(".set-shell-ws");
+            if (wsEl) wsEl.textContent = dir;
+            toast("vault 已切换，重启 markvault 生效");
+          } catch (e) {
+            toast("设置失败: " + (e as Error).message);
+          }
+        })();
+      };
+      (dialog.querySelector("#set-autostart") as HTMLInputElement).onchange = (e) => {
+        void (async () => {
+          const enable = (e.target as HTMLInputElement).checked;
+          try {
+            const now = await ta.core.invoke("set_autostart", { enable });
+            (dialog.querySelector("#set-autostart") as HTMLInputElement).checked = now;
+            toast(now ? "已开启开机自启" : "已关闭开机自启");
+          } catch (err) {
+            (e.target as HTMLInputElement).checked = !enable;
+            toast("设置失败: " + (err as Error).message);
+          }
+        })();
+      };
+    })();
+  }
+
   (dialog.querySelector(".ok") as HTMLElement).onclick = () => {
     void (async () => {
       const port = parseInt((dialog.querySelector("#set-port") as HTMLInputElement).value, 10);

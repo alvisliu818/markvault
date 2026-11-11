@@ -2,6 +2,13 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Normalize a Windows path to backslash form without the `\\?\` verbatim
+/// prefix, for string-level prefix comparison across path spellings.
+fn normalize_win(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('/', "\\");
+    s.strip_prefix("\\\\?\\").unwrap_or(&s).to_string()
+}
+
 /// Vault filesystem helpers. All API paths are vault-relative, POSIX-slashed.
 pub struct Vault {
     pub root: PathBuf,
@@ -27,10 +34,18 @@ impl Vault {
     }
 
     /// Vault-relative POSIX path from an absolute path under root.
+    /// notify-debouncer-full normalizes verbatim paths to forward-slash form
+    /// (`//?/E:/...`), which the Windows path parser does NOT match against
+    /// our canonicalized root (`\\?\E:\...`) via strip_prefix — so fall back
+    /// to normalized string-prefix comparison.
     pub fn rel(&self, abs: &Path) -> Option<String> {
-        abs.strip_prefix(&self.root)
-            .ok()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
+        if let Ok(p) = abs.strip_prefix(&self.root) {
+            return Some(p.to_string_lossy().replace('\\', "/"));
+        }
+        let a = normalize_win(abs);
+        let r = normalize_win(&self.root);
+        a.strip_prefix(&r)
+            .map(|s| s.trim_start_matches('\\').replace('\\', "/"))
     }
 
     pub fn exists(&self, rel: &str) -> bool {

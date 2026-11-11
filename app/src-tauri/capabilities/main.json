@@ -13,6 +13,10 @@
     "allow-browser-act",
     "allow-browser-close",
     "allow-browser-focus",
-    "allow-browser-list"
+    "allow-browser-list",
+    "allow-pick-vault-dir",
+    "allow-set-workspace",
+    "allow-get-shell-conf",
+    "allow-set-autostart"
   ]
 }

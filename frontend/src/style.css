@@ -328,3 +328,14 @@ body {
 .browser-tab-close:hover { color: var(--danger, #f38ba8); background: var(--bg-hover); }
 .browser-history .search-row .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-row.dim { color: var(--text-dim); cursor: default; }
+.set-shell-ws {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-right: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}

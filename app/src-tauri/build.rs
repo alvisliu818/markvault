@@ -11,6 +11,10 @@ fn main() {
             "browser_close",
             "browser_focus",
             "browser_list",
+            "pick_vault_dir",
+            "set_workspace",
+            "get_shell_conf",
+            "set_autostart",
         ])),
     )
     .expect("tauri build failed");

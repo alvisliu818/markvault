@@ -213,6 +213,30 @@
           "markdownDescription": "Enables the browser_open command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_shell_conf command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-shell-conf",
+          "markdownDescription": "Enables the get_shell_conf command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pick_vault_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-vault-dir",
+          "markdownDescription": "Enables the pick_vault_dir command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-autostart",
+          "markdownDescription": "Enables the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_workspace command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-workspace",
+          "markdownDescription": "Enables the set_workspace command without any pre-configured scope."
+        },
+        {
           "description": "Denies the browser_act command without any pre-configured scope.",
           "type": "string",
           "const": "deny-browser-act",
@@ -247,6 +271,30 @@
           "type": "string",
           "const": "deny-browser-open",
           "markdownDescription": "Denies the browser_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_shell_conf command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-shell-conf",
+          "markdownDescription": "Denies the get_shell_conf command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_vault_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-vault-dir",
+          "markdownDescription": "Denies the pick_vault_dir command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-autostart",
+          "markdownDescription": "Denies the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_workspace command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-workspace",
+          "markdownDescription": "Denies the set_workspace command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

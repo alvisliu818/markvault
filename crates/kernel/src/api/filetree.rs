@@ -65,7 +65,7 @@ pub async fn list_docs_by_path(State(st): State<Arc<AppState>>, bytes: Bytes) ->
                     "path": format!("/{}", child_rel),
                     "name": name,
                     "type": "folder",
-                    "subFileCount": count_md_recursive(&db, &child_rel),
+                    "subFileCount": count_md_direct(&db, &child_rel),
                 }));
             } else if name.ends_with(".md") && !st.is_ignored(&child_rel) {
                 let doc = db
@@ -114,10 +114,12 @@ pub async fn list_docs_by_path(State(st): State<Arc<AppState>>, bytes: Bytes) ->
     ApiResp::ok(json!({"notebook": req.notebook, "path": req.path, "files": files}))
 }
 
-fn count_md_recursive(db: &rusqlite::Connection, rel_dir: &str) -> i64 {
+/// Direct-child doc count (Obsidian file-explorer semantics): only .md docs
+/// one level below the folder, not the whole recursive subtree.
+fn count_md_direct(db: &rusqlite::Connection, rel_dir: &str) -> i64 {
     db.query_row(
-        "SELECT COUNT(*) FROM docs WHERE path LIKE ?1",
-        [format!("{}/%", rel_dir)],
+        "SELECT COUNT(*) FROM docs WHERE path LIKE ?1 AND path NOT LIKE ?2",
+        [format!("{}/%", rel_dir), format!("{}/%/%", rel_dir)],
         |r| r.get(0),
     )
     .unwrap_or(0)

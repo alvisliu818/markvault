@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 mod browser;
+mod settings;
 
 struct KernelHandle(Mutex<Option<Child>>);
 
@@ -107,6 +108,7 @@ fn main() {
     tauri::Builder::default()
         .manage(KernelHandle(Mutex::new(None)))
         .manage(browser::BrowserState::default())
+        .manage(settings::AppMeta::default())
         .invoke_handler(tauri::generate_handler![
             browser::browser_open,
             browser::browser_navigate,
@@ -114,6 +116,10 @@ fn main() {
             browser::browser_close,
             browser::browser_focus,
             browser::browser_list,
+            settings::pick_vault_dir,
+            settings::set_workspace,
+            settings::get_shell_conf,
+            settings::set_autostart,
         ])
         .setup(move |app| {
             let child = spawn_kernel(port, &workspace).map_err(|e| e.to_string())?;
@@ -122,6 +128,10 @@ fn main() {
                 .kernel_origin
                 .lock()
                 .unwrap() = format!("http://127.0.0.1:{}", port);
+            *app.state::<settings::AppMeta>()
+                .workspace
+                .lock()
+                .unwrap() = workspace.to_string_lossy().to_string();
 
             if !wait_port_open(port, Duration::from_secs(10)) {
                 return Err("kernel did not start in time".into());

@@ -218,6 +218,11 @@ fn start_watcher(state: Arc<AppState>) {
         .expect("watch workspace");
 
     std::thread::spawn(move || {
+        // The debouncer MUST live as long as this thread: dropping it stops
+        // its internal watcher thread and kills the event stream (pre-v0.3
+        // bug: it sat on start_watcher's stack and was dropped immediately,
+        // so external file changes were never reindexed).
+        let _debouncer = debouncer;
         while let Some(paths) = path_rx.blocking_recv() {
             let st = state.clone();
             let mut changed_md = false;
@@ -242,6 +247,19 @@ fn start_watcher(state: Arc<AppState>) {
                     }
                 } else {
                     structural = true;
+                    // Directory-level event (create/remove/rename). Precisely
+                    // reindex the affected prefix instead of leaving stale rows
+                    // until next boot; the tree broadcast below still notifies
+                    // the frontend. Passing a trailing "/" keeps unindex's
+                    // LIKE-prefix from matching sibling names (dirA%).
+                    if st.vault.is_dir(&rel) {
+                        // created/renamed into existence: reindex its .md tree
+                        // (defensive unindex keeps the "/" so LIKE won't hit siblings)
+                        super::api::ops::reindex_prefix(&st, &format!("{}/", rel), &rel);
+                    } else if !st.vault.exists(&rel) {
+                        // removed/renamed away: drop index rows under it
+                        super::api::ops::unindex(&st, &format!("{}/", rel));
+                    }
                 }
             }
             if structural {
