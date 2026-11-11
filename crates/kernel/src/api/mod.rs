@@ -15,6 +15,7 @@ pub mod zip;
 pub mod export;
 pub mod refs;
 pub mod blockops;
+pub mod vtmove;
 
 use crate::state::AppState;
 use axum::body::Bytes;
@@ -95,6 +96,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .nest("/api/block", blockops::routes())
         .nest("/api/storage", storage::routes())
         .nest("/api/vt", vt::routes())
+        .nest("/api/vt", vtmove::routes())
         .nest("/api/clip", clip::routes())
         .nest("/api/bookmark", bookmark::routes())
         .nest("/api/network", network::routes())

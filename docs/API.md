@@ -68,7 +68,8 @@
 | `/api/vt/addRoot` / `removeRoot` | `{path}` | 根管理 |
 | `/api/vt/getMountTree` / `setMountTree` | `{mountRoots}` | 挂载树整存整取（前端负责编辑） |
 | `/api/vt/setNodeOrder` | `{parentKey, orderedPaths}` | 拖拽序；顶层用 `parentKey:"__root__"` |
-| `/api/vt/getSettings` / `setSettings` | `{settings}` | sortMethod("name"/"weight")、caseSensitive、defaultExpandLevel |
+| `/api/vt/getSettings` / `setSettings` | `{settings}` | sortMethod("weight"默认/"name")、caseSensitive、defaultExpandLevel、includePhysicalSubtree |
+| `/api/vt/moveNode` | `{path, newParent}` | 跨父移动：改写 frontmatter parent；newParent 空 = detach（移除 parent 属性） |
 
 VtNode 结构：`{id(祖先链"::"连接), path, name(消歧后), weight, isRoot, children[]}`。
 MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。

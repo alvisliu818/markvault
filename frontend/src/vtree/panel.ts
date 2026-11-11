@@ -1,5 +1,5 @@
 import { api, type VtNode, type MountItem, type FileEntry } from "../api";
-import { el, showMenu, promptDialog, toast } from "../ui";
+import { el, showMenu, promptDialog, toast, confirmDialog } from "../ui";
 
 interface VTreeHooks {
   openDoc: (path: string, title?: string) => void;
@@ -36,13 +36,15 @@ export class VTreePanel {
     this.container = container;
     const head = el("div", "panel-head");
     const dragBtn = el("button", "btn", "拖拽排序");
+    const sortBtn = el("button", "btn", "排序:权重");
+    const physBtn = el("button", "btn", "物理子树");
     const collapseBtn = el("button", "btn", "折叠");
     const expandBtn = el("button", "btn", "展开");
     const focusBtn = el("button", "btn", "聚焦");
     const locateBtn = el("button", "btn", "定位");
     const mountBtn = el("button", "btn", "+挂载");
     const refreshBtn = el("button", "btn", "刷新");
-    head.append(dragBtn, locateBtn, collapseBtn, expandBtn, focusBtn, mountBtn, refreshBtn);
+    head.append(dragBtn, sortBtn, physBtn, locateBtn, collapseBtn, expandBtn, focusBtn, mountBtn, refreshBtn);
 
     this.relHost = el("div", "tree");
     const relTitle = el("div", "outline-row h1", "关系树");
@@ -57,6 +59,9 @@ export class VTreePanel {
       dragBtn.classList.toggle("primary", this.dragMode);
       toast(this.dragMode ? "拖拽排序模式已开启" : "拖拽排序模式已关闭");
     };
+    sortBtn.onclick = () => void this.toggleSort(sortBtn);
+    physBtn.onclick = () => void this.togglePhysical(physBtn);
+    physBtn.classList.toggle("primary", this.settings.includePhysicalSubtree);
     collapseBtn.onclick = () => {
       const all = this.collectAllIds(this.tree);
       this.state.collapsed = new Set(all);
@@ -77,7 +82,54 @@ export class VTreePanel {
     mountBtn.onclick = () => void this.mountFlow();
     refreshBtn.onclick = () => this.refresh();
 
+    // Alt+L locate (obsidian-virtual-tree command parity)
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        this.locate();
+      }
+    };
+    window.addEventListener("keydown", this.keyHandler);
+
     void this.loadCollapsed();
+  }
+
+  private keyHandler: (e: KeyboardEvent) => void = () => {};
+
+  destroy() {
+    window.removeEventListener("keydown", this.keyHandler);
+  }
+
+  private settings: {
+    sortMethod: string;
+    caseSensitive: boolean;
+    defaultExpandLevel: number;
+    includePhysicalSubtree: boolean;
+  } = { sortMethod: "weight", caseSensitive: false, defaultExpandLevel: -1, includePhysicalSubtree: false };
+
+  private async loadSettings() {
+    try {
+      const { settings } = await api.getVtSettings();
+      if (settings) this.settings = settings;
+    } catch { /* ignore */ }
+  }
+
+  private async toggleSort(btn: HTMLElement) {
+    await this.loadSettings();
+    this.settings.sortMethod = this.settings.sortMethod === "weight" ? "name" : "weight";
+    await api.setVtSettings({ ...this.settings });
+    btn.textContent = "排序:" + (this.settings.sortMethod === "weight" ? "权重" : "名称");
+    toast("排序: " + (this.settings.sortMethod === "weight" ? "权重优先" : "名称优先") + "（拖拽序仍最优先）");
+    this.refresh();
+  }
+
+  private async togglePhysical(btn: HTMLElement) {
+    await this.loadSettings();
+    this.settings.includePhysicalSubtree = !this.settings.includePhysicalSubtree;
+    await api.setVtSettings({ ...this.settings });
+    btn.classList.toggle("primary", this.settings.includePhysicalSubtree);
+    toast(this.settings.includePhysicalSubtree ? "物理子树已合并" : "物理子树已关闭");
+    this.refresh();
   }
 
   private async loadCollapsed() {
@@ -93,6 +145,23 @@ export class VTreePanel {
 
   refresh() {
     void this.reload();
+  }
+
+  /** Add a mount root from external flows (filetree right-click). */
+  addMountRoot(path: string, name: string, kind: "doc" | "notebook" | "file") {
+    const p = path.replace(/^\//, "");
+    if (this.mountRoots.some((m) => m.path === p)) {
+      toast("已存在相同挂载");
+      return;
+    }
+    this.mountRoots.push({
+      uid: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      kind,
+      name,
+      path: p,
+      children: [],
+    });
+    void api.setMountTree(this.mountRoots).then(() => this.renderMount());
   }
 
   private async reload() {
@@ -253,6 +322,29 @@ export class VTreePanel {
       if (srcPath === node.path) return;
       const rect = row.getBoundingClientRect();
       const before = e.clientY < rect.top + rect.height / 2;
+      // cross-parent move when target's parent differs from source's
+      const srcRow = [...this.relHost.querySelectorAll(".tree-row")].find(
+        (r) => (r as HTMLElement).dataset.nodePath === srcPath
+      ) as HTMLElement | undefined;
+      const srcId = srcRow?.dataset.nodeId || "";
+      const sameParent =
+        parentKey === "__root__"
+          ? !srcId.includes("::")
+          : srcId.startsWith(parentKey + "::") && !srcId.slice(parentKey.length + 2).includes("::");
+      if (!sameParent) {
+        if (parentKey === "__root__") {
+          const ok = await confirmDialog("移动到顶层", "将移除源文档的 frontmatter parent 属性（脱离所有父节点），继续？");
+          if (!ok) return;
+        }
+        try {
+          await api.moveNode(srcPath, parentKey === "__root__" ? "" : parentKey);
+          toast(parentKey === "__root__" ? "已移到顶层（parent 已移除）" : "已移动（改写 frontmatter parent）");
+        } catch (err) {
+          toast("移动失败: " + (err as Error).message);
+        }
+        this.refresh();
+        return;
+      }
       await this.reorderSiblings(parentKey, node.path, srcPath, before);
     };
   }
@@ -419,6 +511,18 @@ export class VTreePanel {
       showMenu(e.clientX, e.clientY, [
         { label: "挂载子项", action: () => void this.mountChildFlow(item) },
         { label: "重命名显示名", action: () => void this.renameMountFlow(item) },
+        {
+          label: "提升到顶层", action: () => {
+            // remove from any nested position, re-add as a mount root
+            const strip = (items: MountItem[]): MountItem[] =>
+              items
+                .filter((m) => m.uid !== item.uid)
+                .map((m) => ({ ...m, children: strip(m.children) }));
+            this.mountRoots = strip(this.mountRoots);
+            this.mountRoots.push(JSON.parse(JSON.stringify(item)));
+            void api.setMountTree(this.mountRoots).then(() => this.renderMount());
+          },
+        },
         {
           label: "移除挂载", danger: true, action: async () => {
             this.mountRoots = this.mountRoots.filter((m) => m.uid !== item.uid);

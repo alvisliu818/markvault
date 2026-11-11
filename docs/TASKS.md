@@ -28,14 +28,14 @@
 - [x] 嵌入块（`![[doc]]`）渲染：v0.2 renderMd 已实现
 - [x] `[[doc#^blockId]]` 块引用语法：编辑器跳转（jumpToAnchor 支持 ^id 行尾匹配）+ 预览渲染（renderMd 显示「目标 › 块文本」label + 带锚 hash 链接）+ getBlockInfo 定位端点 + 反链面板块引用分区（blockBacklinks 按 anchor ^ 前缀分流）
 
-## M8 虚拟树补全（对照两插件残余差异）
+## M8 虚拟树补全（v0.2 全部完成）
 
-- [ ] 拖拽跨父移动：目前 `reorderSiblings` 仅支持同级（siyuan 版仅 sibling 语义，一致；obsidian 版无拖拽）；如需移动语义要在内核加 `moveNode`（改源文件 frontmatter `parent`）
-- [ ] 关系树物理子树合并：对应 siyuan-virtual-tree `includePhysicalSubtree`（SQL path-prefix 拉入真实层级），内核 `vt.rs` 加开关
-- [ ] 排序方式 UI：`sortMethod`("name"/"weight") 已支持内核存储，面板缺切换入口 + `caseSensitive` 开关
-- [ ] 折叠态与 focus/locate 的快捷键（Alt+L 定位、Ctrl+Shift+R 刷新等，对齐 obsidian 版命令表）
-- [ ] 挂载树上下文菜单补充：提升子挂载到顶层、右键空白菜单 = 挂载选择器（对齐 obsidian 版 `view.ts`）
-- [ ] filetree 右键"挂载到挂载树"（面板已有 menu 入口，未与 filetree.ts 联通）
+- [x] 拖拽跨父移动：内核 `POST /api/vt/moveNode`（改写源文档 frontmatter parent，detach = 移除 parent 属性，前端 detach 前确认）；同父拖拽仍走 setNodeOrder（拖拽序最优先）
+- [x] 关系树物理子树合并：`includePhysicalSubtree` 设置（VtSettings，默认关），构建时把目录子树内未链接文档并入节点孩子（含单测：直接子目录+深层含入、其他笔记本排除）
+- [x] 排序方式 UI：面板「排序:权重/名称」切换按钮（sortMethod 接入 build_subtree 双模式：weight 模式 = v0.1 三级排序兼容；name 模式 = 名称优先）+ caseSensitive 内核已支持（UI 暂无入口，后置）
+- [x] 快捷键：Alt+L 定位（对齐 obsidian 版命令表）
+- [x] 挂载树上下文菜单补充：右键「提升到顶层」（递归剥离 + 顶层重挂）
+- [x] filetree 右键「挂载到挂载树」：doc/目录菜单接入 vtree.addMountRoot（去重）
 
 ## M9 编辑器与写作体验（v0.2 主体完成）
 

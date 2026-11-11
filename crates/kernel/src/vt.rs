@@ -42,6 +42,11 @@ pub struct VtSettings {
     /// Rename delete obsolete ids from custom_order
     #[serde(default = "default_true")]
     pub prune_order: bool,
+    /// Merge physical sub-tree docs (same-dir children by path prefix)
+    /// into relation-tree nodes as extra children (siyuan-virtual-tree
+    /// includePhysicalSubtree semantics)
+    #[serde(default)]
+    pub include_physical_subtree: bool,
 }
 
 impl Default for VtSettings {
@@ -51,11 +56,13 @@ impl Default for VtSettings {
             case_sensitive: false,
             default_expand_level: default_expand(),
             prune_order: true,
+            include_physical_subtree: false,
         }
     }
 }
 fn default_sort() -> String {
-    "name".into()
+    // v0.1 documented three-tier: drag order > weight desc > name asc
+    "weight".into()
 }
 fn default_expand() -> i32 {
     -1
@@ -220,6 +227,34 @@ pub fn build_relation_tree(
         }
     }
 
+    // includePhysicalSubtree: docs under this doc's directory subtree
+    // (path prefix = doc's dir) merge in as extra children, excluding
+    // already wikilinked ones (siyuan-virtual-tree includePhysicalSubtree)
+    if settings.include_physical_subtree {
+        for d in docs {
+            let dir = match d.path.rsplit_once('/') {
+                Some((dir, _file)) => dir,
+                None => continue,
+            };
+            let prefix = format!("{}/", dir);
+            for other in docs {
+                if other.path == d.path || !other.path.starts_with(&prefix) {
+                    continue;
+                }
+                if !other.path.ends_with(".md") {
+                    continue;
+                }
+                let already_linked = children
+                    .get(d.path.as_str())
+                    .map(|cs| cs.iter().any(|c| c.path == other.path))
+                    .unwrap_or(false);
+                if !already_linked {
+                    children.entry(d.path.clone()).or_default().push(other);
+                }
+            }
+        }
+    }
+
     // Roots: explicit; fallback to childful parentless docs; loose fallback for
     // pure-cycle groups (childful docs even if they have parents)
     let root_paths: Vec<String> = if roots.is_empty() {
@@ -298,20 +333,37 @@ fn build_subtree(
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => {
-                // weight desc
-                b.weight
-                    .partial_cmp(&a.weight)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| {
-                        if settings.case_sensitive {
-                            a.title.cmp(&b.title)
-                        } else {
-                            a.title
-                                .to_lowercase()
-                                .cmp(&b.title.to_lowercase())
-                                .then_with(|| a.title.cmp(&b.title))
-                        }
+                if settings.sort_method == "weight" {
+                    // weight-first mode: weight desc > name asc
+                    b.weight
+                        .partial_cmp(&a.weight)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| {
+                            if settings.case_sensitive {
+                                a.title.cmp(&b.title)
+                            } else {
+                                a.title
+                                    .to_lowercase()
+                                    .cmp(&b.title.to_lowercase())
+                                    .then_with(|| a.title.cmp(&b.title))
+                            }
+                        })
+                } else {
+                    // name-first mode: name asc > weight desc
+                    let name_ord = if settings.case_sensitive {
+                        a.title.cmp(&b.title)
+                    } else {
+                        a.title
+                            .to_lowercase()
+                            .cmp(&b.title.to_lowercase())
+                            .then_with(|| a.title.cmp(&b.title))
+                    };
+                    name_ord.then_with(|| {
+                        b.weight
+                            .partial_cmp(&a.weight)
+                            .unwrap_or(std::cmp::Ordering::Equal)
                     })
+                }
             }
         }
     });
@@ -501,6 +553,31 @@ mod tests {
     }
 
     #[test]
+    fn test_physical_subtree_merge() {
+        let docs = vec![
+            doc("n/A.md", "A", vec![], 0.0),
+            doc("n/sub/B.md", "B", vec![], 0.0),      // subtree of n/: merged
+            doc("n/sub/deep/C.md", "C", vec![], 0.0), // deeper subtree: merged too
+            doc("n/D.md", "D", vec![], 0.0),          // same dir: merged (dir child)
+            doc("m/E.md", "E", vec![], 0.0),          // other notebook: excluded
+        ];
+        let mut st = VtSettings::default();
+        st.include_physical_subtree = true;
+        let tree = build_relation_tree(&docs, &["n/A.md".to_string()], &st, &BTreeMap::new());
+        let mut kids: Vec<&str> = tree[0].children.iter().map(|c| c.path.as_str()).collect();
+        kids.sort();
+        assert_eq!(
+            kids,
+            vec!["n/D.md", "n/sub/B.md", "n/sub/deep/C.md"],
+            "whole dir subtree merges, other notebooks excluded"
+        );
+
+        let st_off = VtSettings::default();
+        let tree2 = build_relation_tree(&docs, &["n/A.md".to_string()], &st_off, &BTreeMap::new());
+        assert!(tree2[0].children.is_empty(), "off by default");
+    }
+
+    #[test]
     fn test_sort_weight_desc_name_asc() {
         let docs = vec![
             doc("n/A.md", "A", vec![], 0.0),
@@ -508,14 +585,26 @@ mod tests {
             doc("n/z.md", "z", vec!["[[A]]".into()], 5.0),
             doc("n/y.md", "y", vec!["[[A]]".into()], 5.0),
         ];
-        let tree = build_relation_tree(
-            &docs,
-            &["n/A.md".to_string()],
-            &VtSettings::default(),
-            &BTreeMap::new(),
-        );
+        let mut st = VtSettings::default();
+        st.sort_method = "weight".into();
+        let tree = build_relation_tree(&docs, &["n/A.md".to_string()], &st, &BTreeMap::new());
         let kids: Vec<&str> = tree[0].children.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(kids, vec!["y", "z", "x"]);
+    }
+
+    #[test]
+    fn test_sort_name_mode() {
+        let docs = vec![
+            doc("n/A.md", "A", vec![], 0.0),
+            doc("n/x.md", "x", vec!["[[A]]".into()], 0.0),
+            doc("n/z.md", "z", vec!["[[A]]".into()], 5.0),
+            doc("n/y.md", "y", vec!["[[A]]".into()], 5.0),
+        ];
+        let mut st = VtSettings::default();
+        st.sort_method = "name".into();
+        let tree = build_relation_tree(&docs, &["n/A.md".to_string()], &st, &BTreeMap::new());
+        let kids: Vec<&str> = tree[0].children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(kids, vec!["x", "y", "z"], "name-first mode ignores weight order");
     }
 
     #[test]

@@ -101,6 +101,10 @@ export class App {
         this.vtree.refresh();
         this.switchDock("vt");
       },
+      onMountToTree: (p, name, isDoc) => {
+        this.vtree.addMountRoot(p, name, isDoc ? "doc" : "notebook");
+        toast("已挂载到挂载树");
+      },
     });
     this.vtree = new VTreePanel(vtPage, {
       openDoc: (p, t) => void this.tabs.open(p, t),

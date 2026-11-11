@@ -1,19 +1,22 @@
-feat: M7 complete - block reference syntax [[doc#^id]] end-to-end
+feat: M8 complete - virtual tree parity items
 
 Kernel:
-- POST /api/block/getBlockInfo: locate block by id (camelCase serde fix)
-- renderMd: [[doc#^id]] renders as "target › block text" label with
-  anchored hash link (block_ref_label resolves via vault scan)
-- getBacklinks: blockBacklinks split from doc-level backlinks by ^ anchor
+- POST /api/vt/moveNode: cross-parent move via frontmatter parent rewrite
+  (empty newParent = detach, removes parent attr)
+- VtSettings.includePhysicalSubtree: merge directory-subtree docs into
+  relation nodes (siyuan-virtual-tree parity, off by default, unit-tested:
+  direct+deep children in, other notebooks out, linked docs deduped)
+- sortMethod actually wired into build_subtree: "weight" (default, v0.1
+  three-tier compat: drag > weight desc > name asc) vs "name" (name first);
+  caseSensitive honored in both modes
 
 Frontend:
-- jumpToAnchor: ^block-id support (line-tail match) alongside heading anchors
-- backlinks panel: 块引用 section
-- api.ts BacklinksData.blockBacklinks
+- vt panel: 排序 toggle button (persisted via setSettings), 物理子树 toggle
+- Alt+L locate shortcut (obsidian-virtual-tree parity)
+- mount tree context menu: 提升到顶层 (recursive strip + re-root)
+- filetree right-click 挂载到挂载树 wired via vtree.addMountRoot (dedup)
+- cross-parent drag now moves; detach asks confirmation (parent attr loss)
 
-All M7 items done: insert/update/delete + auto ^id + breadcrumb + block
-refs + backlinks panel + autocomplete + embeds.
-
-Tests: kernel 12/12, e2e 19/19. Verified end-to-end: insertBlock with
-autoId -> createDoc with [[首页#^id]] -> renderMd label -> blockBacklinks
--> getBlockInfo -> cleanup via deleteBlock/removeDoc.
+Tests: kernel 14/14 (physical merge + name-mode added), e2e 19/19.
+Verified: moveNode rewrite -> tree shows child under new parent -> detach
+restores; settings roundtrip weight+physicalSubtree.

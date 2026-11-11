@@ -181,6 +181,13 @@ export const api = {
   setMountTree: (mountRoots: MountItem[]) => post("/api/vt/setMountTree", { mountRoots }),
   setNodeOrder: (parentKey: string, orderedPaths: string[]) =>
     post("/api/vt/setNodeOrder", { parentKey, orderedPaths }),
+  moveNode: (path: string, newParent: string) =>
+    post("/api/vt/moveNode", { path, newParent }),
+  getVtSettings: () =>
+    post<{ settings: { sortMethod: string; caseSensitive: boolean; defaultExpandLevel: number; includePhysicalSubtree: boolean } }>(
+      "/api/vt/getSettings"
+    ),
+  setVtSettings: (settings: Record<string, unknown>) => post("/api/vt/setSettings", { settings }),
   // storage
   getVal: <T>(key: string) => post<T>("/api/storage/getVal", { key }),
   setVal: (key: string, val: unknown) => post("/api/storage/setVal", { key, val }),

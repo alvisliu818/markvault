@@ -4,6 +4,8 @@ import { el, showMenu, promptDialog, confirmDialog } from "../ui";
 interface PanelHooks {
   openDoc: (path: string, title?: string) => void;
   onAddRoot: (path: string) => void;
+  /** right-click "mount to mount tree" (wired to vtree panel via app) */
+  onMountToTree?: (path: string, name: string, isDoc: boolean) => void;
 }
 
 /**
@@ -116,6 +118,12 @@ export class FileTreePanel {
       { label: "打开", action: () => this.hooks.openDoc(path, entry.title || entry.name) },
       { label: "重命名", action: () => void this.renameFlow(path, entry.title || entry.name) },
       { label: "设为虚拟树根", action: () => this.hooks.onAddRoot(path) },
+      ...(this.hooks.onMountToTree
+        ? [{
+            label: "挂载到挂载树",
+            action: () => this.hooks.onMountToTree!(path, entry.title || entry.name, true),
+          }]
+        : []),
       {
         label: "删除", danger: true, action: async () => {
           if (await confirmDialog("删除文档", `移到回收站: ${path} ?`)) {
@@ -132,6 +140,12 @@ export class FileTreePanel {
     return [
       { label: "新建文档", action: () => void this.createDocFlow(notebook, path) },
       { label: "重命名", action: () => void this.renameFlow(path, entry.name) },
+      ...(this.hooks.onMountToTree
+        ? [{
+            label: "挂载到挂载树",
+            action: () => this.hooks.onMountToTree!(path, entry.name, false),
+          }]
+        : []),
       {
         label: "删除", danger: true, action: async () => {
           if (await confirmDialog("删除文件夹", `移到回收站: ${path} ?`)) {
