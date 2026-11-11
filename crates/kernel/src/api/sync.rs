@@ -1,4 +1,4 @@
-//! LiveSync read-only pull (S1 stage).
+//! LiveSync read-only pull (S1-S3).
 //!
 //! The remote is a MinIO/S3-compatible **journal sync** store, not CouchDB:
 //! `<millis>-docs.jsonl.gz` shards are AES-256-GCM encrypted (E2EE v2), raw-deflate
@@ -9,15 +9,17 @@
 //! * **Only GET / LIST** — no PUT/DELETE is implemented anywhere in this module.
 //! * Credentials come from environment variables only; they are never written to
 //!   `conf.json`, logs, responses or this repository.
-//! * `applyPull` defaults to an isolated export directory and never writes `.md`
-//!   into the vault; the Markdown truth source stays untouched.
+//! * `applyPull` writes reconstructed `.md` bodies into an isolated export
+//!   directory under `.markvault/export/` — never into the vault itself.
 //!
-//! S1 status: shard decryption + deflate + JSONL parsing are implemented and
-//! verified against a real remote. **S2 TODO**: the observed journal shards
-//! contain only `f:` metadata docs whose `children` point at `h:+...` chunk IDs;
-//! the chunk documents themselves were not present in the shards sampled, so
-//! reassembling Markdown bodies is deliberately NOT faked. `decrypt_field()`
-//! (the `%=` document-layer E2EE v2 primitive) is already in place for S2.
+//! Stage status:
+//! * S1 — shard decryption + deflate + JSONL parsing (verified against a real remote).
+//! * S2 — journal chunk rows (`~h:+<64hex>\u{1f}<body>`, plaintext after the shard
+//!   layer) are parsed and `applyPull(export)` writes real `.md` files.
+//! * S3 — cross-shard merge + incremental watermark: `planPull` runs as a
+//!   background job (progress via `getPlan`), pulls only shards newer than the
+//!   `latest-sync` watermark unless `full` is requested, and stores decrypted
+//!   chunks in a content-addressed temp dir that is removed on apply.
 
 use super::{parse, ApiResp};
 use crate::state::AppState;
@@ -39,12 +41,14 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const PBKDF2_ITERATIONS: u32 = 310_000;
 const SYNC_PARAMS_KEY: &str = "_obsidian_livesync_journal_sync_parameters.json";
 const SHARD_SUFFIX: &str = "-docs.jsonl.gz";
 const HKDF_FIELD_PREFIX: &str = "%=";
+const TMP_TTL_HOURS: u64 = 24;
 
 // ---------------------------------------------------------------- config
 
@@ -57,7 +61,7 @@ struct SyncConfig {
     access_key: String,
     secret_key: String,
     passphrase: String,
-    #[allow(dead_code)] // S2: ID derivation key for chunk-id / path verification
+    #[allow(dead_code)] // S3+: ID derivation key for chunk-id / path verification
     id_key: String,
 }
 
@@ -160,8 +164,7 @@ fn decrypt_blob(blob: &[u8], passphrase: &str, pbkdf2_salt: &[u8]) -> Result<Vec
     Ok(buf)
 }
 
-/// Document-layer field decryption (S2 will use this for `data` / encrypted meta).
-#[allow(dead_code)]
+/// Document-layer field decryption. Unencrypted fields pass through unchanged.
 fn decrypt_field(value: &str, passphrase: &str, pbkdf2_salt: &[u8]) -> Result<String, String> {
     if !value.starts_with(HKDF_FIELD_PREFIX) {
         return Ok(value.to_string());
@@ -346,28 +349,114 @@ fn set_status(phase: &str, result: i32, error: &str) {
     }
 }
 
+/// A pull plan. Long-running jobs stay in this map and are driven by a
+/// background task; clients poll `getPlan` for phase/progress.
 struct Plan {
     token: String,
+    mode: String, // "incremental" | "full"
+    phase: String,
+    progress: usize,
+    progress_total: usize,
+    error: Option<String>,
+    done: bool,
     shards: Vec<String>,
-    /// all main docs (`plain`/`newnote`/`notes`) found in the shards
+    skipped_shards: usize,
+    /// main docs deduped by `_id` (latest shard wins), after filtering deleted
     docs: Vec<Value>,
-    /// decrypted chunk bodies keyed by `h:+<64hex>` (S2)
-    chunks: HashMap<String, String>,
-    pbkdf2_salt: Vec<u8>,
+    /// decrypted chunk bodies written to content-addressed files: id -> file
+    chunks: HashMap<String, PathBuf>,
+    tmp_dir: Option<PathBuf>,
+    lines: usize,
+    parse_errors: usize,
+    docs_complete: usize,
+    docs_partial: usize,
+    docs_uncovered: usize,
+    pbkdf2_salt: Option<Vec<u8>>,
     created: u64,
 }
 
-fn plans() -> &'static Mutex<HashMap<String, Plan>> {
-    static P: OnceLock<Mutex<HashMap<String, Plan>>> = OnceLock::new();
+impl Plan {
+    fn new(token: String, mode: String) -> Self {
+        Self {
+            token,
+            mode,
+            phase: "preparing".into(),
+            progress: 0,
+            progress_total: 0,
+            error: None,
+            done: false,
+            shards: Vec::new(),
+            skipped_shards: 0,
+            docs: Vec::new(),
+            chunks: HashMap::new(),
+            tmp_dir: None,
+            lines: 0,
+            parse_errors: 0,
+            docs_complete: 0,
+            docs_partial: 0,
+            docs_uncovered: 0,
+            pbkdf2_salt: None,
+            created: Utc::now().timestamp() as u64,
+        }
+    }
+}
+
+type SharedPlan = Arc<Mutex<Plan>>;
+
+fn plans() -> &'static Mutex<HashMap<String, SharedPlan>> {
+    static P: OnceLock<Mutex<HashMap<String, SharedPlan>>> = OnceLock::new();
     P.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn sync_point_path(st: &AppState) -> std::path::PathBuf {
+fn sync_point_path(st: &AppState) -> PathBuf {
     st.workspace.join(".markvault/sync/livesync/latest-sync")
 }
 
 fn read_sync_point(st: &AppState) -> String {
     std::fs::read_to_string(sync_point_path(st)).unwrap_or_default()
+}
+
+fn shard_millis(key: &str) -> Option<u64> {
+    key.split('-').next()?.parse().ok()
+}
+
+/// Remove leftover temp dirs from plans that were never applied (older than TTL).
+fn cleanup_old_tmp(st: &AppState) {
+    let tmp_root = st.workspace.join(".markvault/tmp");
+    let Ok(entries) = std::fs::read_dir(&tmp_root) else {
+        return;
+    };
+    let ttl = std::time::Duration::from_secs(TMP_TTL_HOURS * 3600);
+    for entry in entries.flatten() {
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir {
+            continue;
+        }
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|m| m.elapsed().ok())
+            .map(|e| e > ttl)
+            .unwrap_or(false);
+        if old {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn write_chunk_file(tmp_dir: &std::path::Path, id: &str, body: &str) -> Result<PathBuf, String> {
+    let hex = id
+        .strip_prefix("h:+")
+        .ok_or_else(|| format!("unexpected chunk id prefix: {}", &id[..id.len().min(6)]))?;
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("unexpected chunk id length: {}", hex.len()));
+    }
+    let dir = tmp_dir.join("chunks").join(&hex[..2]);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir chunk: {}", e))?;
+    let file = dir.join(hex);
+    std::fs::write(&file, body).map_err(|e| format!("write chunk: {}", e))?;
+    Ok(file)
 }
 
 // ---------------------------------------------------------------- handlers
@@ -377,6 +466,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/getStatus", post(get_status))
         .route("/getSourceState", post(get_source_state))
         .route("/planPull", post(plan_pull))
+        .route("/getPlan", post(get_plan))
         .route("/applyPull", post(apply_pull))
 }
 
@@ -434,8 +524,12 @@ async fn get_source_state(State(st): State<Arc<AppState>>, _bytes: Bytes) -> Api
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct PlanReq {
+    /// max shards to pull; 0 = no limit
     #[serde(default)]
     limit: usize,
+    /// ignore the local watermark and pull everything
+    #[serde(default)]
+    full: bool,
 }
 
 /// Journal chunk row: `~h:+<64hex>` + US (`\u{1f}`) separator + body.
@@ -457,12 +551,10 @@ fn is_main_doc(t: &str) -> bool {
     matches!(t, "plain" | "newnote" | "notes")
 }
 
-/// Decrypt the newest N shards, inflate and parse JSONL; returns a preview plus
-/// a plan that can be applied later. No files are written here.
+/// Start a background pull job and return its plan id immediately.
+/// Progress is polled via `getPlan`; applyPull requires phase=done.
 async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let req: PlanReq = parse(&bytes);
-    let limit = req.limit.clamp(1, 20);
-    set_status("preparing", 0, "");
     let cfg = match SyncConfig::from_env() {
         Ok(c) => c,
         Err(e) => {
@@ -470,8 +562,98 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
             return ApiResp::err(-1, &e);
         }
     };
+    let plan_id = format!("mv-{}", Utc::now().timestamp_millis());
+    let token = format!("{:016x}", rand::random::<u64>());
+    let mode = if req.full { "full" } else { "incremental" }.to_string();
+    let plan: SharedPlan = Arc::new(Mutex::new(Plan::new(token.clone(), mode.clone())));
+    if let Ok(mut p) = plans().lock() {
+        p.insert(plan_id.clone(), plan.clone());
+        if p.len() > 8 {
+            let oldest = p
+                .iter()
+                .min_by_key(|(_, v)| v.lock().unwrap().created)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                p.remove(&k);
+            }
+        }
+    }
+    set_status("preparing", 0, "");
+    let job = tokio::spawn(run_pull_job(st.clone(), cfg, plan, req.limit, req.full));
+    // keep the JoinHandle alive but detached; failures are recorded in the plan
+    tokio::spawn(async move {
+        let _ = job.await;
+    });
+    ApiResp::ok(json!({
+        "planId": plan_id,
+        "token": token,
+        "mode": mode,
+        "phase": "preparing",
+        "note": "background job started; poll getPlan until phase=done, then applyPull(target=export)",
+    }))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GetPlanReq {
+    #[serde(default)]
+    plan_id: String,
+}
+
+/// Poll a plan's phase / progress / per-doc coverage preview.
+async fn get_plan(State(_st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
+    let req: GetPlanReq = parse(&bytes);
+    let plan = plans()
+        .lock()
+        .ok()
+        .and_then(|p| p.get(&req.plan_id).cloned());
+    let Some(plan) = plan else {
+        return ApiResp::err(-1, "unknown or expired planId");
+    };
+    let inner = plan.lock().unwrap();
+    let preview: Vec<Value> = inner
+        .docs
+        .iter()
+        .take(50)
+        .map(|d| {
+            json!({
+                "id": d.get("_id").and_then(Value::as_str).unwrap_or(""),
+                "type": d.get("type").and_then(Value::as_str).unwrap_or(""),
+                "path": d.get("path").and_then(Value::as_str).unwrap_or(""),
+                "size": d.get("size").and_then(Value::as_u64).unwrap_or(0),
+                "children": d.get("children").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0),
+                "chunksHit": d.get("chunksHit").and_then(Value::as_u64).unwrap_or(0),
+                "chunksMissing": d.get("chunksMissing").and_then(Value::as_u64).unwrap_or(0),
+                "bodyBytes": d.get("bodyBytes").and_then(Value::as_u64).unwrap_or(0),
+            })
+        })
+        .collect();
+    ApiResp::ok(json!({
+        "planId": req.plan_id,
+        "mode": inner.mode,
+        "phase": inner.phase,
+        "progress": inner.progress,
+        "progressTotal": inner.progress_total,
+        "error": inner.error,
+        "done": inner.done,
+        "shards": inner.shards.len(),
+        "skippedShards": inner.skipped_shards,
+        "lines": inner.lines,
+        "parseErrors": inner.parse_errors,
+        "docsTotal": inner.docs.len(),
+        "docsComplete": inner.docs_complete,
+        "docsPartial": inner.docs_partial,
+        "docsUncovered": inner.docs_uncovered,
+        "chunks": inner.chunks.len(),
+        "docsPreview": preview,
+    }))
+}
+
+async fn run_pull_job(st: Arc<AppState>, cfg: SyncConfig, plan: SharedPlan, limit: usize, full: bool) {
     let result = async {
+        set_phase(&plan, "listing", None);
         let pbk = fetch_pbkdf2_salt(&cfg).await?;
+        plan.lock().unwrap().pbkdf2_salt = Some(pbk.clone());
         let all = list_objects(&cfg).await?;
         let mut shards: Vec<String> = all
             .into_iter()
@@ -479,53 +661,129 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
             .filter(|k| k.ends_with(SHARD_SUFFIX))
             .collect();
         shards.sort();
-        let take: Vec<String> = shards.iter().rev().take(limit).cloned().collect();
-        let mut raw_docs: Vec<Value> = Vec::new();
-        let mut chunks: HashMap<String, String> = HashMap::new();
+        // incremental watermark: only shards newer than latest-sync
+        if !full {
+            let latest = read_sync_point(&st);
+            let from = shard_millis(&latest);
+            if let Some(from) = from {
+                let before = shards.len();
+                shards.retain(|k| shard_millis(k).map(|m| m > from).unwrap_or(false));
+                plan.lock().unwrap().skipped_shards = before - shards.len();
+            }
+        }
+        // newest-first limit (0 = unlimited)
+        if limit > 0 && shards.len() > limit {
+            let cut = shards.split_off(shards.len() - limit);
+            plan.lock().unwrap().skipped_shards += shards.len();
+            shards = cut;
+        }
+        {
+            let mut p = plan.lock().unwrap();
+            p.shards = shards.clone();
+            p.progress_total = shards.len();
+            p.phase = "downloading".into();
+        }
+        // temp dir for content-addressed chunks
+        cleanup_old_tmp(&st);
+        let tmp_dir = st.workspace.join(".markvault/tmp").join(format!(
+            "livesync-{}",
+            Utc::now().timestamp_millis()
+        ));
+        std::fs::create_dir_all(tmp_dir.join("chunks"))
+            .map_err(|e| format!("mkdir tmp: {}", e))?;
+        plan.lock().unwrap().tmp_dir = Some(tmp_dir.clone());
+
+        // concurrent downloads (4), sequential parsing afterwards in shard order
+        set_phase(&plan, "downloading", None);
+        let mut jobs = Vec::new();
+        for key in &shards {
+            let cfg2 = cfg.clone();
+            let key2 = key.clone();
+            let pbk2 = pbk.clone();
+            jobs.push(tokio::spawn(async move {
+                let path = format!("/{}/{}", cfg2.bucket, key2);
+                let raw = s3_get(&cfg2, &path, "").await?;
+                let plain = decrypt_blob(&raw, &cfg2.passphrase, &pbk2)?;
+                let text = inflate_raw(&plain)?;
+                String::from_utf8(text).map_err(|_| "shard is not UTF-8 JSONL".to_string())
+            }));
+        }
+        let mut shard_texts: Vec<(String, String)> = Vec::new();
+        for (i, job) in jobs.into_iter().enumerate() {
+            let res = job
+                .await
+                .map_err(|e| format!("download task: {}", e))?
+                .map_err(|e| e)?;
+            shard_texts.push((shards[i].clone(), res));
+            if let Ok(mut p) = plan.lock() {
+                p.progress = i + 1;
+            }
+        }
+        shard_texts.sort_by(|a, b| a.0.cmp(&b.0)); // apply latest shard last
+
+        set_phase(&plan, "parsing", None);
+        let mut raw_docs: HashMap<String, Value> = HashMap::new();
+        let mut chunks: HashMap<String, PathBuf> = HashMap::new();
         let mut lines_total = 0usize;
         let mut parse_errors = 0usize;
-        for key in &take {
-            let path = format!("/{}/{}", cfg.bucket, key);
-            let raw = s3_get(&cfg, &path, "").await?;
-            let plain = decrypt_blob(&raw, &cfg.passphrase, &pbk)?;
-            let text = String::from_utf8(inflate_raw(&plain)?)
-                .map_err(|_| "shard is not UTF-8 JSONL".to_string())?;
+        for (_key, text) in &shard_texts {
             for line in text.lines() {
                 if line.trim().is_empty() {
                     continue;
                 }
                 lines_total += 1;
                 match serde_json::from_str::<Value>(line) {
-                    Ok(v) => raw_docs.push(v),
+                    Ok(v) => {
+                        if let Some(id) = v.get("_id").and_then(Value::as_str) {
+                            raw_docs.insert(id.to_string(), v);
+                        }
+                    }
                     Err(_) => match parse_chunk_row(line) {
                         Some((id, body)) => {
-                            chunks.insert(id, body);
+                            match write_chunk_file(&tmp_dir, &id, &body) {
+                                Ok(file) => {
+                                    chunks.insert(id, file);
+                                }
+                                Err(_) => parse_errors += 1,
+                            }
                         }
                         None => parse_errors += 1,
                     },
                 }
             }
         }
-        // Build the doc preview with per-doc chunk coverage.
+        // dedupe main docs (latest shard wins) and compute coverage
         let mut docs: Vec<Value> = Vec::new();
-        let mut docs_total = 0usize;
         let mut docs_complete = 0usize;
         let mut docs_partial = 0usize;
         let mut docs_uncovered = 0usize;
-        for v in &raw_docs {
+        for v in raw_docs.values() {
             let t = v.get("type").and_then(Value::as_str).unwrap_or("");
             if !is_main_doc(t) {
                 continue;
             }
-            docs_total += 1;
-            let children = v.get("children").and_then(Value::as_array).cloned().unwrap_or_default();
+            let deleted = v
+                .get("_deleted")
+                .or_else(|| v.get("deleted"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if deleted {
+                continue;
+            }
+            let children = v
+                .get("children")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let mut hit = 0usize;
             let mut body_bytes = 0usize;
             for c in &children {
                 let cid = c.as_str().unwrap_or("");
-                if let Some(p) = chunks.get(cid) {
-                    hit += 1;
-                    body_bytes += p.len();
+                if let Some(f) = chunks.get(cid) {
+                    if let Ok(meta) = std::fs::metadata(f) {
+                        hit += 1;
+                        body_bytes += meta.len() as usize;
+                    }
                 }
             }
             let missing = children.len() - hit;
@@ -536,71 +794,61 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
             } else {
                 docs_uncovered += 1;
             }
-            if docs.len() < 200 {
-                docs.push(json!({
-                    "id": v.get("_id").and_then(Value::as_str).unwrap_or(""),
-                    "type": t,
-                    "path": v.get("path").and_then(Value::as_str).unwrap_or(""),
-                    "size": v.get("size").and_then(Value::as_u64).unwrap_or(0),
-                    "children": children.len(),
-                    "chunksHit": hit,
-                    "chunksMissing": missing,
-                    "bodyBytes": body_bytes,
-                }));
-            }
+            docs.push(json!({
+                "id": v.get("_id").and_then(Value::as_str).unwrap_or(""),
+                "type": t,
+                "path": v.get("path").and_then(Value::as_str).unwrap_or(""),
+                "size": v.get("size").and_then(Value::as_u64).unwrap_or(0),
+                "children": children,
+                "childrenCount": children.len(),
+                "chunksHit": hit,
+                "chunksMissing": missing,
+                "bodyBytes": body_bytes,
+            }));
         }
-        let chunk_rows_total = chunks.len();
-        let plan_id = format!("mv-{}", Utc::now().timestamp_millis());
-        let token = format!("{:016x}", rand::random::<u64>());
-        let preview = json!(docs);
-        if let Ok(mut p) = plans().lock() {
-            p.insert(
-                plan_id.clone(),
-                Plan {
-                    token: token.clone(),
-                    shards: take.clone(),
-                    docs: raw_docs,
-                    chunks,
-                    pbkdf2_salt: pbk.clone(),
-                    created: Utc::now().timestamp() as u64,
-                },
-            );
-            if p.len() > 8 {
-                let oldest = p
-                    .iter()
-                    .min_by_key(|(_, v)| v.created)
-                    .map(|(k, _)| k.clone());
-                if let Some(k) = oldest {
-                    p.remove(&k);
-                }
-            }
+        docs.sort_by(|a, b| {
+            a.get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .cmp(b.get("path").and_then(Value::as_str).unwrap_or(""))
+        });
+        {
+            let mut p = plan.lock().unwrap();
+            p.docs = docs;
+            p.chunks = chunks;
+            p.tmp_dir = Some(tmp_dir);
+            p.lines = lines_total;
+            p.parse_errors = parse_errors;
+            p.docs_complete = docs_complete;
+            p.docs_partial = docs_partial;
+            p.docs_uncovered = docs_uncovered;
+            p.phase = "done".into();
+            p.done = true;
         }
-        Ok::<_, String>(json!({
-            "planId": plan_id,
-            "token": token,
-            "direction": "download",
-            "shards": take,
-            "lines": lines_total,
-            "chunkRows": chunk_rows_total,
-            "parseErrors": parse_errors,
-            "docsTotal": docs_total,
-            "docsComplete": docs_complete,
-            "docsPartial": docs_partial,
-            "docsUncovered": docs_uncovered,
-            "docs": preview,
-            "note": "plan only: call applyPull with target=export to write reconstructed .md files into the isolated export directory",
-            "localSyncPoint": read_sync_point(&st),
-        }))
+        Ok::<_, String>(())
     }
     .await;
     match result {
-        Ok(v) => {
-            set_status("idle", 1, "");
-            ApiResp::ok(v)
+        Ok(()) => {
+            let mut p = plan.lock().unwrap();
+            p.phase = "done".into();
+            p.done = true;
         }
         Err(e) => {
+            let mut p = plan.lock().unwrap();
+            p.phase = "error".into();
+            p.error = Some(e.clone());
+            p.done = true;
             set_status("idle", 2, &e);
-            ApiResp::err(-1, &e)
+        }
+    }
+}
+
+fn set_phase(plan: &SharedPlan, phase: &str, error: Option<String>) {
+    if let Ok(mut p) = plan.lock() {
+        p.phase = phase.to_string();
+        if let Some(e) = error {
+            p.error = Some(e);
         }
     }
 }
@@ -619,13 +867,13 @@ struct ApplyReq {
 /// Sanitize a remote path into a safe relative export path.
 /// Rejects traversal, absolute paths and drive prefixes; strips the
 /// LiveSync namespace prefixes (`i:` / `ix:` / `ps:`) component-wise.
-fn safe_relative_path(raw: &str) -> Option<std::path::PathBuf> {
+fn safe_relative_path(raw: &str) -> Option<PathBuf> {
     let norm = raw.replace('\\', "/");
     let trimmed = norm.trim_start_matches('/');
     if trimmed.is_empty() {
         return None;
     }
-    let mut out = std::path::PathBuf::new();
+    let mut out = PathBuf::new();
     for comp in trimmed.split('/') {
         let comp = comp.trim();
         if comp.is_empty() || comp == "." || comp.contains("..") {
@@ -648,28 +896,36 @@ fn safe_relative_path(raw: &str) -> Option<std::path::PathBuf> {
     }
 }
 
-/// Apply a preview plan. `export` writes the reconstructed `.md` bodies into an
+/// Apply a finished plan. `export` writes the reconstructed `.md` bodies into an
 /// isolated directory under `.markvault/export/` — never into the vault.
-/// `index` is deferred until the import pipeline lands.
 async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let req: ApplyReq = parse(&bytes);
-    let plan = plans().lock().ok().and_then(|p| {
-        p.get(&req.plan_id).map(|v| {
-            (
-                v.token.clone(),
-                v.shards.clone(),
-                v.docs.clone(),
-                v.chunks.clone(),
-                v.pbkdf2_salt.clone(),
-            )
-        })
-    });
-    let (expected_token, shards, raw_docs, chunks, pbk) = match plan {
-        Some(p) => p,
-        None => return ApiResp::err(-1, "unknown or expired planId"),
+    let plan = plans()
+        .lock()
+        .ok()
+        .and_then(|p| p.get(&req.plan_id).cloned());
+    let Some(plan) = plan else {
+        return ApiResp::err(-1, "unknown or expired planId");
     };
-    if req.token != expected_token {
+    let (token, mode, phase, error, shards, docs, chunks, tmp_dir, pbk) = {
+        let p = plan.lock().unwrap();
+        (
+            p.token.clone(),
+            p.mode.clone(),
+            p.phase.clone(),
+            p.error.clone(),
+            p.shards.clone(),
+            p.docs.clone(),
+            p.chunks.clone(),
+            p.tmp_dir.clone(),
+            p.pbkdf2_salt.clone().unwrap_or_default(),
+        )
+    };
+    if req.token != token {
         return ApiResp::err(-1, "token mismatch");
+    }
+    if !done_and_ok(&phase, &error) {
+        return ApiResp::err(-1, &format!("plan not ready: phase={} error={:?}", phase, error));
     }
     let target = if req.target.is_empty() {
         "export"
@@ -677,8 +933,9 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         &req.target
     };
     if target != "export" {
-        return ApiResp::err(-1, "target must be export (or wait for the index pipeline)");
+        return ApiResp::err(-1, "target must be export (index pipeline is a later stage)");
     }
+    let passphrase = cfg_passphrase();
     let dir = st
         .workspace
         .join(".markvault/export")
@@ -691,19 +948,22 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let mut skipped = 0usize;
     let mut errors = 0usize;
     let mut body_bytes_total = 0usize;
-    for d in &raw_docs {
-        let t = d.get("type").and_then(Value::as_str).unwrap_or("");
-        if !is_main_doc(t) {
-            continue;
-        }
-        let children = d.get("children").and_then(Value::as_array).cloned().unwrap_or_default();
+    for d in &docs {
+        let children = d
+            .get("children")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let mut pieces: Vec<String> = Vec::new();
         let mut miss = 0usize;
         for c in &children {
             let cid = c.as_str().unwrap_or("");
             match chunks.get(cid) {
-                Some(body) => match decrypt_field(body, &cfg_passphrase(), &pbk) {
-                    Ok(piece) => pieces.push(piece),
+                Some(file) => match std::fs::read_to_string(file) {
+                    Ok(body) => match decrypt_field(&body, &passphrase, &pbk) {
+                        Ok(piece) => pieces.push(piece),
+                        Err(_) => miss += 1,
+                    },
                     Err(_) => miss += 1,
                 },
                 None => miss += 1,
@@ -728,10 +988,11 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
                 continue;
             }
         }
-        match std::fs::write(&file, pieces.join("")) {
+        let body = pieces.join("");
+        match std::fs::write(&file, &body) {
             Ok(_) => {
                 applied += 1;
-                body_bytes_total += pieces.join("").len();
+                body_bytes_total += body.len();
             }
             Err(_) => errors += 1,
         }
@@ -739,6 +1000,7 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let manifest = json!({
         "source": "livesync-s3",
         "direction": "download",
+        "mode": mode,
         "shards": shards,
         "applied": applied,
         "partial": partial,
@@ -747,9 +1009,9 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         "bodyBytesTotal": body_bytes_total,
         "note": "exported into an isolated directory; the vault itself is never touched",
     });
-    let file = dir.join("manifest.json");
+    let manifest_file = dir.join("manifest.json");
     let _ = std::fs::write(
-        &file,
+        &manifest_file,
         serde_json::to_string_pretty(&manifest).unwrap_or_default(),
     );
     if let Some(latest) = shards.iter().max() {
@@ -759,6 +1021,9 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         }
         let _ = std::fs::write(&p, latest);
     }
+    if let Some(tmp) = tmp_dir {
+        let _ = std::fs::remove_dir_all(tmp);
+    }
     set_status("done", 1, "");
     ApiResp::ok(json!({
         "applied": applied,
@@ -766,10 +1031,15 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         "skipped": skipped,
         "errors": errors,
         "bodyBytesTotal": body_bytes_total,
-        "manifest": file.to_string_lossy(),
+        "manifest": manifest_file.to_string_lossy(),
         "note": "no .md written into the vault; bodies live under .markvault/export/",
     }))
 }
+
+fn done_and_ok(phase: &str, error: &Option<String>) -> bool {
+    phase == "done" && error.is_none()
+}
+
 
 fn cfg_passphrase() -> String {
     std::env::var("MARKVAULT_SYNC_PASSPHRASE").unwrap_or_default()
@@ -866,14 +1136,20 @@ mod tests {
     fn safe_relative_path_rejects_traversal() {
         assert_eq!(
             safe_relative_path("260817/笔记/首页.md"),
-            Some(std::path::PathBuf::from("260817/笔记/首页.md"))
+            Some(PathBuf::from("260817/笔记/首页.md"))
         );
         assert!(safe_relative_path("../evil.md").is_none());
         assert!(safe_relative_path("a/../../b.md").is_none());
         assert!(safe_relative_path("").is_none());
         assert_eq!(
             safe_relative_path("/260817/a.md"),
-            Some(std::path::PathBuf::from("260817/a.md"))
+            Some(PathBuf::from("260817/a.md"))
         );
+    }
+
+    #[test]
+    fn shard_millis_extracts_timestamp() {
+        assert_eq!(shard_millis("1794397462713-docs.jsonl.gz"), Some(1794397462713));
+        assert_eq!(shard_millis("nope"), None);
     }
 }

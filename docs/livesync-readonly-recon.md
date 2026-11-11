@@ -78,6 +78,19 @@
 
 **仍未闭合（S3+）**：单分片只覆盖部分笔记——完整还原需要跨分片合并 + 增量水位（只拉新分片、按 `latest-sync` 跳过已应用）；ID 恢复码仍未用到（chunk ID 校验是可选项，还原只依赖 `passphrase + pbkdf2salt`）。
 
+### S3 实机结果（2026-11-11）
+
+`planPull` 改为**后台任务**（立即返回 planId，`getPlan` 轮询 phase/progress），默认**增量水位**（只拉 `latest-sync` 之后的分片，`skippedShards` 记录跳过数；`full:true` 强制全量）；解密 chunk 写入内容寻址临时目录（`.markvault/tmp/livesync-<id>/chunks/<前2>/<hex>`），applyPull 成功后整目录清理。
+
+实机验证（测试库）：
+
+- **增量水位**：水位设为最新分片后 `planPull` 正确拉取 0 个分片（无更新内容）；`full+limit=12` 时按数量取最新。
+- **chunk 行解析**：21 行全部落盘，`parseErrors=0`；`getPlan` 返回 `lines/chunks/parseErrors/docsTotal` 等统计。
+- **`applyPull(export)`**：跨分片 chunk 聚合后导出 9 篇 `.md`（12,350 字节，UTF-8 校验通过），vault 未动；同步点推进、临时目录清理。
+- 单测 33/33；修掉一处 S3 回归（docs 预览把 `children` 写成数量导致 applyPull 拿不到 chunk 引用）。
+
+**剩余（S4+）**：全量首拉（174 分片 / 约 775MB）未实测，建议分批 limit 或网络并发调优；导出笔记入索引（`index` 目标）；S5 进度事件推前端；S6 本地 repo 加密；S7 双向。ID 恢复码仍仅剩 chunk ID 校验用途。
+
 ## 5. 工程注意
 
 - **绝不入库**：口令、恢复码、accessKey/secretKey、endpoint、bucket 名。实现时应从环境变量或本机 Obsidian 插件配置读取，仓库内只放格式与算法说明。
