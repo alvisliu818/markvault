@@ -50,7 +50,7 @@
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| A | S3 SigV4 列对象 / 下载分片 / PBKDF2+HKDF+AES-GCM / raw deflate → JSONL | ✅ 已验证 |
+| A | S3 SigV4 列对象 / 下载分片 / PBKDF2+HKDF+AES-GCM / raw deflate → JSONL | ✅ 已验证，已落 Rust 内核 `/api/sync/*`（S1） |
 | B | 解析 JSONL 文档类型（`plain` / `leaf` / `chunkpack` / `note` / `versioninfo` 等），按 `_id`/`_rev` 取最新版 | 待做 |
 | C | **文档层 E2EE v2 解密**：`decryptDataV2()` 对应实现（分片层与文档层是两层加密） | 待做 |
 | D | **路径混淆还原 + chunk 合并**：用 ID 派生密钥还原文档 ID/路径，`v3-rabin-karp` 分块按 `children` 还原为完整 .md | 待做 |
@@ -58,6 +58,14 @@
 | F | 增量策略：按时间戳只拉新分片 + milestone 检查点，避免每次全量 168 个对象 | 待做 |
 
 **建议**：先做 B + C（把一个分片里的笔记标题/正文解出来，端到端跑通 1 篇），再定 E 的集成形态；D 的 chunk 合并可以放在「单篇可读」之后。
+
+### S1 实机结果（2026-11-11，内核 API 形态）
+
+集成形态已定为**内核 API**：`crates/kernel/src/api/sync.rs` 新增 `/api/sync/getStatus | getSourceState | planPull | applyPull`，全部只读远端；`ring` 提供 PBKDF2/HKDF/AES-256-GCM，`flate2` 处理 raw deflate，SigV4 用已有 hmac/sha2/hex 手写。单测 4 个（加解密 round-trip、`%=` 字段层、deflate、LIST XML），内核单测总数 26 → 30。
+
+实机（测试库 + 环境变量）：`getSourceState` 返回 176 对象 / 174 分片 / 最新分片名；`planPull(limit=1)` 成功解密最新分片 → 65 行 / 44 个唯一文档 / 路径与 size 明文可读；`applyPull(export)` 只写 manifest 并推进同步点，未写 `.md`。
+
+**S2 关键线索**：合并 166 个分片后共 6784 个文档，`_id` 全部为 `f:` 前缀、`type` 仅 `plain`/`newnote`，`children` 指向 `h:+` chunk 但 **chunk 文档未出现在分片中**，`eden` 为空；最新分片 65 行里有 **21 行不是 JSON**（`parseErrors`）——chunk/内联数据很可能藏在这些非 JSON 行或另一种记录编码里。S2 应先定位这 21 行的格式，再按 `children` 拼接。另：这些分片合计约 775 MB，增量水位（只拉新分片）比全量下载更重要。
 
 ## 5. 工程注意
 

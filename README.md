@@ -126,6 +126,7 @@ source: "https://..."    # 剪藏文档溯源
 - `/api/graph/getGraph` — `{nodes, links}` 关系图谱数据（v0.3）
 - `/api/repo/*` — createSnapshot/listSnapshots/getSnapshot/restoreSnapshot/cleanSnapshots（v0.3 文件级快照）
 - `/api/petal/*` — loadPetals/setPetals/getPetalConf/setPetalConf + `GET /petal/<name>/` 只读静态托管（v0.3 插件）
+- `/api/sync/*` — getStatus/getSourceState/planPull/applyPull（v0.3+ LiveSync 只读拉取，S1 阶段；凭据走环境变量、远端只 GET/LIST、不写 `.md`）
 - `/api/storage/getVal|setVal`、`/api/index/rebuild`、`GET /ws`（推送 filetree-changed/doc-reindexed/vt-changed/progress/index-done）
 
 > `/api/system/getConf` 的 `conf` 字段返回 **camelCase** 视图（`networkServe`/`parentAttr` 等），磁盘 `conf.json` 仍是 snake_case；`setConf` 的 patch 也用 camelCase key。

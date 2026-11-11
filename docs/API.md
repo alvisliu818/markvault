@@ -128,6 +128,19 @@ MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。
 `GET /ws`：推送 `{cmd,code,msg,data}`；`cmd` ∈ `filetree-changed` / `doc-reindexed{path}` / `vt-changed` / `progress` / `index-done`。
 外部文件改动由 watcher 监听：.md 走 `reindex_one`/`unindex`，目录级事件走精确 prefix 重索引（`unindex("<dir>/")` + `reindex_prefix`），`.markvault/` 完全跳过避免自触发。
 
+## sync（v0.3+ · LiveSync 只读拉取，S1 阶段）
+
+凭据**只从环境变量读取**（`MARKVAULT_SYNC_ENDPOINT / BUCKET / REGION / ACCESS_KEY / SECRET_KEY / PASSPHRASE / ID_KEY`），不落 `conf.json`、不写入响应与日志。整个模块对远端只发 `GET`/`LIST`，**没有 PUT/DELETE**。
+
+| 端点 | 参数 | 说明 |
+|---|---|---|
+| `/api/sync/getStatus` | — | `{configured, phase, lastResult, lastError, lastSync, idKeyPresent}`；`lastResult` 0 未知 / 1 成功 / 2 失败 |
+| `/api/sync/getSourceState` | — | SigV4 只读列对象：`{source, remoteObjects, shards, bytes, latestShard, localSyncPoint, readonly:true}` |
+| `/api/sync/planPull` | `{limit?: 1..20}` | 下载最新 N 个分片 → PBKDF2/HKDF/AES-GCM 解密 → raw deflate → JSONL 解析；返回 `{planId, token, shards, lines, uniqueIds, parseErrors, docs[], note}`。`docs` 为元数据预览（id/type/path/size/children/dataPrefix），**不写任何文件** |
+| `/api/sync/applyPull` | `{planId, token, target:"export"\|"index"}` | 校验 plan/token；`export` 仅把 manifest 写入 `.markvault/export/livesync-<时间戳>/` 并推进同步点；`index` 返回「S2 未实现」。**不写 `.md`、不覆盖 vault** |
+
+> S1 现状：分片解密 + JSONL 解析已实机验证；分片内只发现 `f:` 元数据文档，`children` 指向 `h:+` chunk 但 chunk 文档未定位，故**不伪造 Markdown 正文**。文档层 `%=` 字段解密原语已实现，供 S2 使用。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md) 与 [sync-architecture.md](sync-architecture.md)。
+
 ## Tauri 壳 IPC（非 HTTP，v0.3）
 
 桌面前端经 `window.__TAURI__` 调用（`withGlobalTauri` + `capabilities/main.json` 的 `allow-*` 授权，remote 主窗口必需）：

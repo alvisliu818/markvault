@@ -90,7 +90,7 @@
 
 | 任务 | 状态 | 说明与依赖 |
 |---|---|---|
-| **LiveSync 对接** | 侦察完成 / 只读 MVP 待实现 | **实际后端是 MinIO/S3 journal sync（非 CouchDB）**：`<毫秒>-docs.jsonl.gz` 加密分片 + `sync-parameters`。当前插件 1.0.47：E2EE v2、路径混淆、ID 派生 v1（恢复码）。已验证只读 LIST + PBKDF2(310k)→HKDF→AES-GCM 分片解密 → raw deflate → JSONL 全链路（口令有效）；配置层由另一把口令保护、只读拉取不需要。剩余：JSONL 文档解析、文档层 E2EE v2 解密、ID key 路径还原 + chunk 合并、集成形态定案。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md)；已参考思源内核同步实现产出 [sync-architecture.md](sync-architecture.md)（接口契约 + S1-S7 实现顺序，红线：只读阶段不回写 `.md`） |
+| **LiveSync 对接** | 侦察完成 / 只读 MVP 待实现 | **实际后端是 MinIO/S3 journal sync（非 CouchDB）**：`<毫秒>-docs.jsonl.gz` 加密分片 + `sync-parameters`。当前插件 1.0.47：E2EE v2、路径混淆、ID 派生 v1（恢复码）。已验证只读 LIST + PBKDF2(310k)→HKDF→AES-GCM 分片解密 → raw deflate → JSONL 全链路（口令有效）；配置层由另一把口令保护、只读拉取不需要。**S1 已交付（内核 API 形态）**：`/api/sync/*` 四端点、30/30 单测、实机跑通最新分片解密与元数据预览；剩余 S2：定位分片内 21/65 行非 JSON 记录中的 chunk 内容、文档层 E2EE v2 解密、ID key 路径还原 + chunk 合并。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md)；已参考思源内核同步实现产出 [sync-architecture.md](sync-architecture.md)（接口契约 + S1-S7 实现顺序，红线：只读阶段不回写 `.md`） |
 | **Tauri mobile 构建** | 未做 | Android/iOS 打包需对应 SDK 环境（本机 Windows 只能走 Android 路线）；SPA 响应式已交付，此项纯构建配置层 |
 | **petal / repo 加密** | 未做 | 快照仓库（repo/）与插件存储均为 plaintext MVP；需设计密钥管理（思源是快照口令派生） |
 | **petal 集市** | 未做 | 插件市场/分发（列表、下载、更新），生态成型后再做；当前只支持本地安装 |
