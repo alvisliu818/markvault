@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  kernel:
+    name: kernel (cargo test + clippy)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings
+
+  frontend:
+    name: frontend (tsc + vite build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  e2e:
+    name: e2e (headless Edge)
+    runs-on: windows-latest
+    needs: [kernel, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: build kernel
+        run: cargo build
+      - name: build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: start kernel
+        shell: pwsh
+        run: |
+          Start-Process -FilePath ".\target\debug\markvault-kernel.exe" `
+            -ArgumentList "serve","--workspace","./testvault","--port","7806" `
+            -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+      - name: run e2e
+        working-directory: frontend
+        run: node e2e/check.mjs

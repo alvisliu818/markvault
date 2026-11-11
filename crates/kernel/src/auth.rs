@@ -29,10 +29,6 @@ pub fn logout_cookie_header() -> String {
     format!("{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0", SESSION_COOKIE)
 }
 
-fn header_value(s: &str) -> header::HeaderValue {
-    header::HeaderValue::from_str(s).unwrap_or(header::HeaderValue::from_static(""))
-}
-
 fn has_valid_session(key: &[u8], cookies: &str) -> bool {
     let want = session_value(key);
     cookies.split(';').any(|c| {

@@ -5,3 +5,4 @@
 /_tmp/
 testvault/.markvault/
 app/src-tauri/target/
+app/src-tauri/binaries/

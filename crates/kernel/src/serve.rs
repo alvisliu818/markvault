@@ -48,12 +48,16 @@ pub async fn serve(opts: ServeOpts) {
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let state = AppState::new(workspace.clone(), conf.clone(), db, shutdown_tx);
 
-    // Boot: full index rebuild (markdown files are truth; DB is derived cache)
+    // Boot: incremental index (mtime+size stamp skips unchanged docs)
     {
         let st = state.clone();
         tokio::task::spawn_blocking(move || {
             let db = st.db.lock().unwrap();
-            let n = crate::index::builder::rebuild_all(&db, &st.vault, &|rel| st.is_ignored(rel));
+            let n = crate::index::builder::rebuild_all_ext(&db, &st.vault, &|rel| st.is_ignored(rel), false, &|done, total| {
+                if done % 20 == 0 || done == total {
+                    crate::ws::push_progress(done as u64, total as u64);
+                }
+            });
             tracing::info!("indexed {} docs", n);
         })
         .await

@@ -115,7 +115,17 @@ fn index_routes() -> Router<Arc<AppState>> {
         let st2 = st.clone();
         tokio::task::spawn_blocking(move || {
             let db = st2.db.lock().unwrap();
-            let n = crate::index::builder::rebuild_all(&db, &st2.vault, &|rel| st2.is_ignored(rel));
+            let n = crate::index::builder::rebuild_all_ext(
+                &db,
+                &st2.vault,
+                &|rel| st2.is_ignored(rel),
+                true,
+                &|done, total| {
+                    if done % 20 == 0 || done == total {
+                        crate::ws::push_progress(done as u64, total as u64);
+                    }
+                },
+            );
             drop(db);
             crate::ws::broadcast("index-done", json!({"count": n}));
             st2.rebuilding.store(false, Ordering::SeqCst);

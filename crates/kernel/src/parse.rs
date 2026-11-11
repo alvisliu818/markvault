@@ -17,7 +17,6 @@ pub struct ParseBlock {
 pub struct ParseLink {
     pub target: String,
     pub anchor: Option<String>,
-    pub display: Option<String>,
 }
 
 static HEADING_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(#{1,6})\s+(.*)$").unwrap());
@@ -107,7 +106,6 @@ pub fn parse_wikilinks(md_body: &str) -> Vec<ParseLink> {
         out.push(ParseLink {
             target: cap[1].trim().to_string(),
             anchor: cap.get(2).map(|m| m.as_str().to_string()),
-            display: cap.get(3).map(|m| m.as_str().to_string()),
         });
     }
     out

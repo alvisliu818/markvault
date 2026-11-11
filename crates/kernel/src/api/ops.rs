@@ -5,7 +5,7 @@ pub fn reindex_one(st: &AppState, path: &str) {
     let db = st.db.lock().unwrap();
     match crate::index::builder::index_doc(&st.vault, path) {
         Some(doc) => {
-            let _ = crate::index::builder::upsert_doc(&db, &doc);
+            let _ = crate::index::builder::upsert_doc(&db, &doc, crate::index::builder::file_stamp_pub(&st.vault, path));
         }
         None => {
             let _ = crate::index::builder::remove_doc(&db, path);
@@ -45,7 +45,7 @@ pub fn reindex_prefix(st: &AppState, old_prefix: &str, new_prefix: &str) {
     collect_md_paths(&st.vault, &scan_prefix, &mut paths);
     for p in &paths {
         if let Some(doc) = crate::index::builder::index_doc(&st.vault, p) {
-            let _ = crate::index::builder::upsert_doc(&db, &doc);
+            let _ = crate::index::builder::upsert_doc(&db, &doc, crate::index::builder::file_stamp_pub(&st.vault, p));
         }
     }
 }

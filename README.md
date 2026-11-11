@@ -2,6 +2,8 @@
 
 Rust 内核 + Markdown 存储的笔记软件。参考 [思源笔记](https://github.com/siyuan-note/siyuan) 的内核分离架构与 [Obsidian](https://obsidian.md) 的纯 Markdown 存储，并整合了 [obsidian-virtual-tree](https://github.com/) 与 [siyuan-virtual-tree](https://github.com/) 两个虚拟文档树插件的功能，以及思源浏览器插件的剪藏/书签数据面。
 
+**当前版本 v0.2**：M9 编辑器体验 + M10 打包发布已交付（内核 10/10 单测、E2E 18/18、NSIS 安装包）。
+
 ```
 ┌──────────────┐   HTTP API + WS   ┌─────────────────────┐
 │  前端 SPA     │ ◄──────────────► │  markvault-kernel    │
@@ -56,6 +58,18 @@ cargo run --manifest-path app/src-tauri/Cargo.toml
 # 自动拉起内核子进程（随机空闲端口）并打开窗口
 # 工作目录: MARKVAULT_WORKSPACE 环境变量 > %APPDATA%/markvault/config.json {"workspace": "..."} > ~/markvault-vault
 ```
+
+### 4. 发布打包（NSIS 安装包）
+
+```powershell
+pwsh scripts/build-release.ps1            # 一键: 内核 release → sidecar → 前端 → NSIS
+pwsh scripts/build-release.ps1 -SkipInstaller   # 只构建不打包
+# 产物: app/src-tauri/target/release/bundle/nsis/markvault_<ver>_x64-setup.exe
+```
+
+### 5. 日志
+
+内核 `--log-file` 写 `<vault>/.markvault/logs/kernel.log`（5MB 循环滚动 × 3）；stdout 模式为默认。
 
 ## 布局约定
 

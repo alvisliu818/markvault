@@ -1,5 +1,5 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use futures::stream::{SplitSink, StreamExt};
+use futures::stream::StreamExt;
 use futures::SinkExt;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
@@ -77,5 +77,3 @@ async fn handle_socket(socket: WebSocket) {
         _ = &mut recv_task => send_task.abort(),
     }
 }
-
-pub type WsSink = SplitSink<WebSocket, Message>;

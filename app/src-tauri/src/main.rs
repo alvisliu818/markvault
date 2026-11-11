@@ -9,7 +9,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 struct KernelHandle(Mutex<Option<Child>>);
 
-/// Resolve the kernel binary: sidecar next to this exe > dev workspace target dir.
+/// Resolve the kernel binary: target-triple sidecar next to this exe > plain exe > dev workspace target dir.
 fn resolve_kernel() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("MARKVAULT_KERNEL") {
         let p = PathBuf::from(p);
@@ -18,11 +18,21 @@ fn resolve_kernel() -> Option<PathBuf> {
         }
     }
     let exe = std::env::current_exe().ok()?;
-    let mut candidates = vec![exe.parent()?.join("markvault-kernel.exe")];
+    let dir = exe.parent()?;
+    let mut candidates = Vec::new();
+    // tauri externalBin sidecar: <name>-<target-triple>.exe
+    if let Ok(triple) = std::env::var("TAURI_TARGET_TRIPLE") {
+        candidates.push(dir.join(format!("markvault-kernel-{}.exe", triple)));
+    }
+    // common Windows triple fallback
+    candidates.push(dir.join("markvault-kernel-x86_64-pc-windows-msvc.exe"));
+    // plain name (manual copy next to exe)
+    candidates.push(dir.join("markvault-kernel.exe"));
     // dev: cargo workspace target dir baked in at compile time
     // (src-tauri is <root>/app/src-tauri)
     let manifest = env!("CARGO_MANIFEST_DIR");
     candidates.push(PathBuf::from(manifest).join("../../target/debug/markvault-kernel.exe"));
+    candidates.push(PathBuf::from(manifest).join("../../target/release/markvault-kernel.exe"));
     candidates.into_iter().find(|p| p.exists())
 }
 
@@ -77,14 +87,15 @@ fn spawn_kernel(port: u16, workspace: &PathBuf) -> Result<Child, String> {
     let kernel = resolve_kernel().ok_or_else(|| {
         "markvault-kernel.exe not found (sidecar missing; set MARKVAULT_KERNEL)".to_string()
     })?;
-    Command::new(kernel)
+    Command::new(&kernel)
         .arg("serve")
         .arg("--workspace")
         .arg(workspace)
         .arg("--port")
         .arg(port.to_string())
+        .arg("--log-file")
         .spawn()
-        .map_err(|e| format!("spawn kernel: {}", e))
+        .map_err(|e| format!("spawn kernel {}: {}", kernel.display(), e))
 }
 
 fn main() {

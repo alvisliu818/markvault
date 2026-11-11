@@ -47,15 +47,15 @@
 - [ ] `.sy` 导入：用户决定不做
 - [x] 预览面板外部 http 链接 `window.open` 新窗口打开（原已知问题顺手修）
 
-## M10 工程化与打包
+## M10 工程化与打包（v0.2 完成）
 
-- [ ] **Tauri release 打包**：tauri-cli + `bundle.externalBin` sidecar（需 `markvault-kernel-x86_64-pc-windows-msvc.exe` 命名拷贝）、NSIS 安装包、图标各尺寸生成；`cargo tauri build`
-- [ ] Tauri 设置页：vault 选择对话框（代替 `%APPDATA%/markvault/config.json` 手编）、开机自启开关
-- [ ] SPA 设置面板：conf 项（port/networkServe/accessAuthCode/apiToken/parentAttr/weightAttr/ignorePatterns）可视化编辑（现在只有 getConf/setConf API）
-- [ ] 启动索引优化：全量重建改为 mtime+size 校验增量（docs 表已有 size/updated，加 `indexed_mtime` 列即可），大 vault 冷启动提速
-- [ ] cargo warning 清理（9 个：unused id.rs/doc_summary/fm_str_array/header_value/WsSink/push_progress/display 等，要么接入要么删除）；`cargo clippy --fix`
-- [ ] E2E 扩充：图片粘贴（clipboard mock）、`[[锚点]]` 跳转、未解析链接创建流；CI（GitHub Actions：cargo test + npm build + e2e headless）
-- [ ] 日志：内核 `--log-file` 选项 + 循环滚动，替代 stdout-only
+- [x] **Tauri release 打包**：NSIS 安装包 `markvault_0.2.0_x64-setup.exe`（6.27 MiB，内核 sidecar + 前端资源）；`scripts/build-release.ps1` 一键流程（kernel release → sidecar 拷为 `<名>-<target-triple>.exe` → 前端构建 → tauri build）；图标 15 件套（PIL 生成）；冒烟验证 release 壳拉起 sidecar 内核（随机端口 + --log-file）
+- [ ] Tauri 设置页：vault 选择对话框（代替 `%APPDATA%/markvault/config.json` 手编）、开机自启开关 —— SPA 设置面板已可改 conf，壳侧对话框缓后
+- [x] SPA 设置面板：conf 项（port/networkServe/accessAuthCode/apiToken/readonly/parentAttr/weightAttr/ignorePatterns）可视化编辑（toolbar「设置」按钮，settings.ts）
+- [x] 启动索引优化：`index_meta` 表存 mtime_ms+size 戳，boot 命中即跳过解析（测试库二次启动索引阶段 62ms/8 docs）；手动「重建索引」走 force 全量；boot 与 rebuild 均接 WS progress（每 20 篇上报，原已知问题一并闭环）
+- [x] cargo warning 清零（id.rs 删除、doc_summary/fm_str_array/fm_number 转 cfg(test)、WsSink/header_value/ParseLink.display 删除）
+- [x] CI（GitHub Actions）：kernel（test+clippy -D warnings）/ frontend（tsc+build）/ e2e（headless Edge）三 job
+- [x] 日志：内核 `--log-file` 循环滚动（5MB × 3 个文件，main.rs 内置 Roller）；Tauri 壳默认带 --log-file 拉起内核
 
 ## M11 更远期
 
@@ -69,12 +69,12 @@
 
 - [x] `readDir` 列出 `.` 开头目录 —— v0.2 已加 dot 过滤（与 filetree/listDocsByPath 语义对齐）
 - [ ] listDocsByPath 的 `subFileCount` 对 folder 是全递归计数，与 obsidian 版"直接子文档数"语义不一致，二选一
-- [ ] `fmt_progress`（api/ops.rs）与 ws `push_progress` 未接线（rebuild 时上报进度）
+- [x] `fmt_progress` 与 ws `push_progress` 未接线 —— v0.2 boot/rebuild 均已上报（每 20 篇 + 收尾）
 - [x] tabs.ts `onOpenLink` 外部 http 链接处理 —— 预览面板已接 `window.open`；编辑器内 wiki 装饰本身只处理 doc 目标
 - [ ] watcher 对"目录重命名"事件会退化为全量结构广播而非精确 prefix 重索引（`serve.rs` 只按文件粒度处理）
 - [ ] preview 面板中 `/#/doc/` 链接在 Tauri 外部 URL 窗口内要验证 hash 路由兼容性
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：M10 打包发布 > M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器。
+优先级建议：M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

@@ -174,7 +174,9 @@ pub fn fm_str(fm: &Map<String, Value>, key: &str) -> Option<String> {
 }
 
 /// Read a string array field (frontmatter `parent: ["[[X]]"]` etc.)
-pub fn fm_str_array(fm: &Map<String, Value>, key: &str) -> Vec<String> {
+/// Used by tests today; upcoming /api/attr batch APIs will consume it.
+#[cfg(test)]
+pub(crate) fn fm_str_array(fm: &Map<String, Value>, key: &str) -> Vec<String> {
     match fm.get(key) {
         Some(Value::Array(a)) => a
             .iter()
@@ -185,7 +187,9 @@ pub fn fm_str_array(fm: &Map<String, Value>, key: &str) -> Vec<String> {
     }
 }
 
-pub fn fm_number(fm: &Map<String, Value>, key: &str) -> f64 {
+/// Read a numeric frontmatter field (weight etc.); tests + upcoming APIs.
+#[cfg(test)]
+pub(crate) fn fm_number(fm: &Map<String, Value>, key: &str) -> f64 {
     fm.get(key)
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0)

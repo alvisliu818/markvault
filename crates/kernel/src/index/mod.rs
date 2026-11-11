@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS docs(
 );
 CREATE INDEX IF NOT EXISTS idx_docs_notebook ON docs(notebook);
 
+-- fast boot: skip re-parsing files whose mtime+size are unchanged
+CREATE TABLE IF NOT EXISTS index_meta(
+  path TEXT PRIMARY KEY,
+  mtime_ms INTEGER NOT NULL,
+  size INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS blocks(
   doc_path TEXT NOT NULL,
   block_id TEXT,

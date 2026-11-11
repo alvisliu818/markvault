@@ -8,6 +8,7 @@ import { OutlinePanel } from "../panels/outline";
 import { BacklinkPanel } from "../panels/backlinks";
 import { BookmarkPanel } from "../panels/bookmark";
 import { VTreePanel } from "../vtree/panel";
+import { settingsButton } from "../panels/settings";
 import { editorTheme } from "../editor/cm";
 
 /**
@@ -31,10 +32,11 @@ export class App {
     const toolbar = el("div", "mv-toolbar");
     const brand = el("span", "brand", "markvault");
     const themeBtn = el("button", "btn", "主题");
+    const settingsBtn = settingsButton();
     const rebuildBtn = el("button", "btn", "重建索引");
     const clipBtn = el("button", "btn", "剪藏");
     const exportNbBtn = el("button", "btn", "导出笔记本");
-    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, themeBtn);
+    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, settingsBtn, themeBtn);
 
     const main = el("div", "mv-main");
     const dock = el("div", "mv-dock");
