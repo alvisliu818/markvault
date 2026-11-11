@@ -148,6 +148,7 @@ impl SnapshotStore {
         SnapshotStore { root, cap: DEFAULT_CAP }
     }
 
+    #[cfg(test)]
     pub fn with_cap(root: PathBuf, cap: usize) -> Self {
         SnapshotStore { root, cap: cap.max(1) }
     }

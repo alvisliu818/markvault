@@ -14,6 +14,7 @@ pub mod petal;
 pub mod search;
 pub mod snapshot;
 pub mod storage;
+pub mod sync;
 pub mod system;
 pub mod vt;
 pub mod zip;
@@ -111,6 +112,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .nest("/api/graph", graph::routes())
         .nest("/api/repo", snapshot::routes())
         .nest("/api/petal", petal::routes())
+        .nest("/api/sync", sync::routes())
         .nest("/api/export", export::routes())
         .nest("/api/index", index_routes())
 }
