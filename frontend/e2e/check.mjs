@@ -159,6 +159,18 @@ try {
   check("新建文档并打开页签", tabCount >= 2, `tabs=${tabCount}`);
   await page.screenshot({ path: shots + "t9_new_doc.png" });
 
+  // 11b. wikilink autocomplete: type [[ in editor -> suggestion list appears
+  await page.click(".cm-content");
+  await page.keyboard.press("Control+End");
+  await page.keyboard.type("\n\n[[计划");
+  await page.waitForSelector(".cm-tooltip-autocomplete", { timeout: 5000 });
+  const acText = await page.textContent(".cm-tooltip-autocomplete");
+  check("wikilink 自动补全", acText.includes("计划"), acText.slice(0, 40));
+  await page.keyboard.press("Escape");
+  // remove the typed text (no save)
+  await page.keyboard.press("Control+End");
+  for (let i = 0; i < 4; i++) await page.keyboard.press("Backspace");
+
   // cleanup: delete the temp doc via kernel API
   await page.evaluate(async () => {
     await fetch("/api/filetree/removeDoc", {

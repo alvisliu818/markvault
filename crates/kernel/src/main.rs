@@ -1,6 +1,7 @@
 mod api;
 mod auth;
 mod conf;
+mod id;
 mod index;
 mod parse;
 mod serve;

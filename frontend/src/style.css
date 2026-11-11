@@ -168,6 +168,20 @@ body {
 .cm-line.mv-h1, .cm-line.mv-h2 { border-bottom: 1px solid var(--border); padding-bottom: 2px; }
 .cm-line { transition: none; }
 
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px;
+  font-family: inherit;
+}
+.cm-tooltip-autocomplete ul li {
+  color: var(--text); padding: 3px 8px;
+}
+.cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--bg-active); color: var(--accent);
+}
+.cm-completionDetail {
+  color: var(--text-dim); font-size: 11px; margin-left: 8px;
+}
+
 /* ---- backlink panel ---- */
 .bk-section-title {
   padding: 6px 10px 2px; font-size: 12px; font-weight: 600;

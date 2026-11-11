@@ -16,16 +16,17 @@
 - [ ] **下载管理**：`/api/network/forwardProxy` 已可内核侧抓取；落地"保存图片/文件到 vault assets"端点（`/api/asset/downloadToLocal`），参考 siyuan-plugin-browser `kernel.ts` 的 putFile multipart 契约
 - [ ] 历史记录：`.markvault/storage/browser-history.json` + 历史面板（对齐 bookmarksStore 的 10min 去重/上限策略）
 
-## M7 块级能力（索引已备好地基）
+## M7 块级能力（v0.2 主体完成）
 
-`blocks` 表已存 `block_id`（Obsidian `^id` 语法）+ heading/段落结构，无 API 暴露。
+`blocks` 表已存 `block_id`（Obsidian `^id` 语法）+ heading/段落结构。
 
-- [ ] `POST /api/block/insertBlock|updateBlock|deleteBlock`：行级块操作（内部定位 = doc_path + line），写入后 `ops::reindex_one`
-- [ ] 自动补块 ID：新建块写入时用 `id::new_node_id()` 生成（思源式 14 位时间戳-7 位随机，`id.rs` 已备）
-- [x] `GET /api/block/getBlockBreadcrumb`（v0.2 以面包屑组件实现：前端按 path 段渲染，父段可点击跳转）
-- [x] **反链面板**：v0.2 已交付 `/api/ref/getBacklinks`（正向 links/未解析 + 反向 backlinks + 伪反链 mentions），前端"反链" dock；块级反链待 M7 块操作落地后补充
-- [x] wikilink 自动补全：v0.2 用 CM6 docsFacet 实现**未解析链接虚线样式 + 点击创建提示**；下拉补全列表仍开放（接 `listDocTree` 数据即可）
-- [x] 嵌入块（`![[doc]]`）渲染：renderMd 端点已实现（一级展开、带标题栏和"打开"链接、相对链接按目标文档位置重写）
+- [x] `POST /api/block/insertBlock|updateBlock|deleteBlock`：行级块操作（body 相对行定位，响应带 bodyLine 字段；updateBlock 自动保留尾部 `^id`），写入后 reindex + notify
+- [x] 自动补块 ID：insertBlock `autoId:true` 默认追加思源式 ` ^id`（id.rs 恢复并接线，含格式单测）
+- [x] `POST /api/block/getBlockBreadcrumb`：按 line 回溯父级 heading 栈（降栈算法含单测）
+- [x] **反链面板**：v0.2 已交付 `/api/ref/getBacklinks`，前端"反链" dock；块级反链待 `[[doc#^id]]` 引用语法落地后补充
+- [x] wikilink 自动补全：CM6 autocompletion `[[` 触发，docsFacet 过滤 + label/detail 双列，E2E 断言防回归
+- [x] 嵌入块（`![[doc]]`）渲染：v0.2 renderMd 已实现
+- [ ] `[[doc#^blockId]]` 块引用语法（解析/跳转/渲染，块级反链的地基）
 
 ## M8 虚拟树补全（对照两插件残余差异）
 

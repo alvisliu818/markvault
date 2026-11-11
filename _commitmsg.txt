@@ -1,0 +1,17 @@
+feat: M7 block-level operations + wikilink autocomplete
+
+Kernel:
+- POST /api/block/insertBlock (autoId defaults true, appends SiYuan-style
+  ` ^id`), updateBlock (preserves existing trailing ^id), deleteBlock
+- POST /api/block/getBlockBreadcrumb: heading stack above a line
+- body-relative line addressing, responses carry bodyLine to disambiguate
+  from absolute file lines (getBlockMd stays absolute)
+- id.rs restored and wired (format unit test)
+
+Frontend:
+- wikilink autocomplete: `[[` triggers CM6 autocompletion over docsFacet
+  (label + path detail, E2E-asserted)
+- autocomplete tooltip theming
+
+Tests: kernel 12/12 (id format + breadcrumb stack added), e2e 19/19
+(autocomplete assertion added)

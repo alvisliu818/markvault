@@ -48,6 +48,10 @@
 |---|---|---|
 | `/api/block/getDocInfo` | `{path}` | title/notebook/hpath/created/updated/size/attrs/wordCount |
 | `/api/block/getBlockMd` | `{path, line?}` | 全文或单行 |
+| `/api/block/insertBlock` | `{path, markdown, line?, autoId?}` | 行级插入（line=body 相对行，0=末尾；autoId 默认追加思源式 ` ^id`），返回 `{bodyLine}` |
+| `/api/block/updateBlock` | `{path, line, markdown}` | 替换该行；自动保留尾部已有 ` ^id` |
+| `/api/block/deleteBlock` | `{path, line}` | 删除该行 |
+| `/api/block/getBlockBreadcrumb` | `{path, line}` | 回溯父级 heading 栈 `[{level,content,line}]` |
 | `/api/attr/getBlockAttrs` | `{path}` | frontmatter map |
 | `/api/attr/setBlockAttrs` | `{path, attrs:{}}` | 合并进 frontmatter（value=null 删除），写盘重索引 |
 | `/api/outline/getDocOutline` | `{path}` | `[{blockId,type:"h1".."h6",content,line}]` |

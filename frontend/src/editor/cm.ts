@@ -6,6 +6,7 @@ import { languages } from "@codemirror/language-data";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 
 export interface EditorOpts {
   doc: string;
@@ -272,6 +273,47 @@ const inlineImgPlugin = ViewPlugin.fromClass(
   , { decorations: (v) => v.decorations }
 );
 
+// ---- wikilink autocomplete: [[query -> doc list ----
+
+function wikilinkCompletions(): Extension {
+  return autocompletion({
+    override: [wikiSource],
+    activateOnTyping: true,
+    icons: false,
+  });
+}
+
+function wikiSource(ctx: CompletionContext): CompletionResult | null {
+  const before = ctx.matchBefore(/\[\[([^\]\n]*)$/);
+  if (!before) return null;
+  const docs = ctx.state.facet(docsFacet);
+  const typed = before.text.slice(2);
+  const q = typed.toLowerCase();
+  const options = docs
+    .filter((d) => {
+      const title = d.title.toLowerCase();
+      const base = (d.path.split("/").pop()?.replace(/\.md$/, "") ?? "").toLowerCase();
+      return !q || title.includes(q) || base.includes(q) || d.path.toLowerCase().includes(q);
+    })
+    .slice(0, 12)
+    .map((d) => {
+      const base = d.path.split("/").pop()?.replace(/\.md$/, "") ?? d.title;
+      const label = d.title || base;
+      return {
+        label,
+        detail: d.path,
+        type: "doc",
+        apply: label + "]]",
+      };
+  });
+  if (options.length === 0) return null;
+  return {
+    from: before.from + 2,
+    options,
+    validFor: /^[^\]\n]*$/,
+  };
+}
+
 export const docPathFacet = Facet.define<string, string>({
   combine: (values) => values[values.length - 1] ?? "",
 });
@@ -306,6 +348,7 @@ export function createEditor(host: HTMLElement, opts: EditorOpts): EditorHandle 
     docsComp.of(docsFacet.of(opts.docsProvider())),
     pathComp.of(docPathFacet.of(opts.path)),
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+    wikilinkCompletions(),
     onChange,
     headingLinePlugin,
     highlightPlugin,
