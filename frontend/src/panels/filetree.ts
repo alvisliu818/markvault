@@ -1,5 +1,6 @@
 import { api, onWsPush, type FileEntry, type Notebook } from "../api";
 import { el, showMenu, promptDialog, confirmDialog } from "../ui";
+import { showHistoryDialog } from "./snapshots";
 
 interface PanelHooks {
   openDoc: (path: string, title?: string) => void;
@@ -117,6 +118,7 @@ export class FileTreePanel {
     return [
       { label: "打开", action: () => this.hooks.openDoc(path, entry.title || entry.name) },
       { label: "重命名", action: () => void this.renameFlow(path, entry.title || entry.name) },
+      { label: "历史版本", action: () => showHistoryDialog(path, entry.title || entry.name) },
       { label: "设为虚拟树根", action: () => this.hooks.onAddRoot(path) },
       ...(this.hooks.onMountToTree
         ? [{

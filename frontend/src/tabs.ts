@@ -1,5 +1,6 @@
 import { api, readText } from "./api";
 import { createEditor, updateEditorContext, type EditorOpts } from "./editor/cm";
+import { showHistoryDialog } from "./panels/snapshots";
 import type { EditorView } from "@codemirror/view";
 import { el, toast, confirmDialog, escapeHtml } from "./ui";
 
@@ -128,9 +129,9 @@ export class TabManager {
     this.renderBar();
     if (!tab.hostEl) {
       this.buildPane(tab, content ?? "");
-    } else {
-      tab.hostEl.classList.remove("hidden");
     }
+    // buildPane starts hidden; the active tab's pane is now shown
+    tab.hostEl?.classList.remove("hidden");
     this.hooks.onOutlineRefresh(tab.path);
     this.hooks.onBacklinksRefresh(tab.path);
     this.hooks.onBreadcrumb(tab.path);
@@ -146,7 +147,8 @@ export class TabManager {
     const saveBtn = el("button", "btn", "保存");
     const attrsBtn = el("button", "btn", "属性");
     const exportBtn = el("button", "btn", "导出");
-    row.append(previewBtn, saveBtn, attrsBtn, exportBtn);
+    const histBtn = el("button", "btn", "历史");
+    row.append(previewBtn, saveBtn, attrsBtn, exportBtn, histBtn);
     const host = el("div", "cm-host");
     const preview = el("div", "preview-pane hidden");
     pane.append(row, host, preview);
@@ -222,6 +224,7 @@ export class TabManager {
     };
     attrsBtn.onclick = () => void this.showAttrs(tab);
     exportBtn.onclick = () => void this.exportDoc(tab);
+    histBtn.onclick = () => showHistoryDialog(tab.path, tab.title);
     // Ctrl+S
     handle.view.dom.addEventListener("keydown", (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {

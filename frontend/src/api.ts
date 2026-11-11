@@ -214,6 +214,13 @@ export const api = {
   // storage
   getVal: <T>(key: string) => post<T>("/api/storage/getVal", { key }),
   setVal: (key: string, val: unknown) => post("/api/storage/setVal", { key, val }),
+  // snapshots (file-level version history, /api/repo/*)
+  listSnapshots: (path: string) =>
+    post<{ snapshots: { id: string; created: number; hash: string }[] }>("/api/repo/listSnapshots", { path }),
+  createSnapshot: (path: string) => post<{ id: string | null }>("/api/repo/createSnapshot", { path }),
+  getSnapshot: (path: string, id: string) => post<{ content: string }>("/api/repo/getSnapshot", { path, id }),
+  restoreSnapshot: (path: string, id: string) => post("/api/repo/restoreSnapshot", { path, id }),
+  cleanSnapshots: (path: string) => post("/api/repo/cleanSnapshots", { path }),
 };
 
 // ---- WebSocket push ----

@@ -68,6 +68,12 @@ pub async fn put_file(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp 
     if rel.is_empty() {
         return ApiResp::err(-1, "path required");
     }
+    // auto-snapshot: keep the pre-write content of md files in the repo
+    if !req.is_dir && rel.ends_with(".md") {
+        if let Some(old) = st.vault.read_file(rel) {
+            let _ = super::snapshot::store(&st).snapshot(rel, &old, false);
+        }
+    }
     let res = if req.is_dir {
         st.vault.mkdir(rel).map(|_| 0)
     } else {

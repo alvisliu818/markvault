@@ -270,6 +270,87 @@ try {
   });
   check("清理下载文件与历史", true);
 
+  // 10h. snapshot history: putFile auto-snapshots pre-write content,
+  // restore rolls the file back (kernel /api/repo/*)
+  const snapA = await page.evaluate(async () => {
+    const r = await fetch("/api/file/putFile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/E2E快照.md", data: "快照V1内容标记\n" }),
+    });
+    return r.json();
+  });
+  await page.evaluate(async () => {
+    await fetch("/api/file/putFile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/E2E快照.md", data: "快照V2内容标记\n" }),
+    });
+  });
+  await page.evaluate(async () => {
+    await fetch("/api/file/putFile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/E2E快照.md", data: "快照V3内容标记\n" }),
+    });
+  });
+  const snapList = await page.evaluate(async () => {
+    const r = await fetch("/api/repo/listSnapshots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/E2E快照.md" }),
+    });
+    return (await r.json()).data.snapshots;
+  });
+  check(
+    "快照-putFile 自动留存",
+    snapA.code === 0 && snapList.length >= 2,
+    `snapshots=${snapList.length}`
+  );
+  const restored = await page.evaluate(async (id) => {
+    const r1 = await fetch("/api/repo/restoreSnapshot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/E2E快照.md", id }),
+    });
+    const j1 = await r1.json();
+    const r2 = await fetch("/api/file/getFile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/E2E快照.md" }),
+    });
+    return { restore: j1, content: await r2.text() };
+  }, snapList[snapList.length - 1].id);
+  check(
+    "快照-恢复回滚到旧版",
+    restored.restore.code === 0 && restored.content.includes("快照V1内容标记"),
+    restored.content.slice(0, 40)
+  );
+
+  // UI: editor toolbar 历史 button opens the history dialog
+  const histBtn = page.locator('.editor-pane:not(.hidden) button:has-text("历史")').first();
+  if ((await histBtn.count()) > 0) {
+    await histBtn.click();
+    await page.waitForSelector(".history-dialog", { timeout: 4000 });
+    await page.waitForTimeout(400);
+    const histText = await page.textContent(".history-dialog");
+    check("历史版本对话框", histText.includes("历史版本") && histText.includes("创建快照"), histText.slice(0, 60));
+    await page.screenshot({ path: shots + "t12_history.png" });
+    await page.click('.history-dialog .cancel');
+  } else {
+    check("历史版本对话框", false, "no 历史 button visible");
+  }
+
+  // cleanup: snapshot test doc
+  await page.evaluate(async () => {
+    await fetch("/api/filetree/removeDoc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "/笔记本A/E2E快照.md" }),
+    });
+  });
+  check("清理快照测试文档", true);
+
   // 11. new doc via toolbar flow (API-backed UI) — switch back to 文件 tab first
   await page.click('.mv-dock .dock-tab:has-text("文件")');
   await page.waitForTimeout(300);

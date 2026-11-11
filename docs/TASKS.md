@@ -1,6 +1,6 @@
 # markvault 后续任务
 
-> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 修复 + 关系图谱），内核单测 22/22，E2E 29/29。
+> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 修复 + 关系图谱 + 文件级快照历史），内核单测 25/25，E2E 33/33。
 > 本文档承接 README「后续路线」与 docs/ARCHITECTURE.md「已知限制」，按里程碑组织。做完请打勾。
 
 ## M6 内嵌浏览器（Tauri 多窗口方案，v0.3 完成）
@@ -60,7 +60,7 @@
 
 ## M11 更远期
 
-- [ ] 同步/历史：文件级快照仓库（仿思源 repo/ 加密快照）或对接已有 LiveSync 方案
+- [~] 同步/历史：文件级快照仓库（仿思源 repo/ 加密快照）或对接已有 LiveSync 方案 —— v0.3 交付本地快照部分：内核 `.markvault/repo/`（snapshot.rs，内容寻址 `<millis>-<chash8>.md` 去重、每文档 30 版上限、plaintext MVP 加密留待后续）+ `/api/repo/createSnapshot|listSnapshots|getSnapshot|restoreSnapshot|cleanSnapshots`；putFile 写前自动快照旧内容；restore 前自动快照当前内容；前端「历史版本」对话框（filetree 右键 + 编辑器工具行「历史」）；单测 3 + E2E 3。LiveSync（CouchDB）对接未做
 - [ ] 多工作区切换（内核 `--workspace` 多实例 or 单实例多 vault）
 - [ ] 移动端布局（SPA 响应式 + Tauri mobile）
 - [ ] 插件系统：前端模块加载器 + 内核 `/api/petal/*` 存储约定（对齐思源插件生态形态）
@@ -77,5 +77,5 @@
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：~~M7 > M8 > M6 > M10 设置页~~、~~已知问题~~、~~图谱~~ 均已交付；M11 剩余按需选做：同步/历史 > 多工作区 > 插件系统 > 移动端。
+优先级建议：~~M7 > M8 > M6 > M10 设置页~~、~~已知问题~~、~~图谱~~、~~快照历史~~ 均已交付；M11 剩余按需选做：多工作区 > 插件系统 > 移动端 > LiveSync 对接。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

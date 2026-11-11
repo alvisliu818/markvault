@@ -11,6 +11,7 @@ pub mod network;
 pub mod notebook;
 pub mod ops;
 pub mod search;
+pub mod snapshot;
 pub mod storage;
 pub mod system;
 pub mod vt;
@@ -107,6 +108,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .nest("/api/network", network::routes())
         .nest("/api/ref", refs::routes())
         .nest("/api/graph", graph::routes())
+        .nest("/api/repo", snapshot::routes())
         .nest("/api/export", export::routes())
         .nest("/api/index", index_routes())
 }

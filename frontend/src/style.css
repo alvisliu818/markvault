@@ -343,3 +343,16 @@ body {
 /* ---- graph panel (M11) ---- */
 .graph-stat { font-size: 11px; color: var(--text-dim); margin-left: 8px; }
 .graph-canvas { flex: 1; width: 100%; min-height: 0; cursor: default; }
+
+/* ---- snapshot history dialog (M11) ---- */
+.history-dialog { width: 680px; max-width: 92vw; }
+.hist-body { display: flex; gap: 10px; height: 320px; margin: 10px 0; }
+.hist-list { width: 220px; overflow: auto; border: 1px solid var(--border, #363650); border-radius: 6px; }
+.hist-row { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid rgba(54,54,80,.4); }
+.hist-row:hover { background: var(--bg-hover); }
+.hist-row.active { background: var(--bg-active); }
+.hist-row .path { font-size: 10px; color: var(--text-dim); }
+.hist-empty { padding: 12px; color: var(--text-dim); font-size: 12px; }
+.hist-view { flex: 1; overflow: auto; margin: 0; padding: 10px; border: 1px solid var(--border, #363650); border-radius: 6px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+.hist-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hist-hint { font-size: 11px; color: var(--text-dim); }
