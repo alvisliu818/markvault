@@ -20,6 +20,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/updateBlock", post(update_block))
         .route("/deleteBlock", post(delete_block))
         .route("/getBlockBreadcrumb", post(get_block_breadcrumb))
+        .route("/getBlockInfo", post(get_block_info))
 }
 
 #[derive(Deserialize, Default)]
@@ -242,6 +243,43 @@ async fn get_block_breadcrumb(State(st): State<Arc<AppState>>, bytes: Bytes) -> 
         }
     }
     ApiResp::ok(json!({"path": rel, "breadcrumb": out}))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct BlockInfoReq {
+    #[serde(default)]
+    path: String,
+    /// block id WITHOUT the leading ^ (e.g. 20261111105203-67z2yiv)
+    #[serde(default)]
+    block_id: String,
+}
+
+/// Locate a block by id within a doc: {line, type, text}
+async fn get_block_info(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
+    let req: BlockInfoReq = parse(&bytes);
+    let rel = rel_of(&req.path);
+    let bid = req.block_id.trim_start_matches('^').trim().to_string();
+    if bid.is_empty() {
+        return ApiResp::err(-1, "blockId required");
+    }
+    let db = st.db.lock().unwrap();
+    match db.query_row(
+        "SELECT type, text, line FROM blocks WHERE doc_path = ?1 AND block_id = ?2 LIMIT 1",
+        rusqlite::params![rel, bid],
+        |r| {
+            Ok(json!({
+                "path": rel,
+                "blockId": bid,
+                "type": r.get::<_, String>(0)?,
+                "text": r.get::<_, String>(1)?,
+                "line": r.get::<_, i64>(2)?,
+            }))
+        },
+    ) {
+        Ok(v) => ApiResp::ok(v),
+        Err(_) => ApiResp::err(-1, "block not found"),
+    }
 }
 
 #[cfg(test)]

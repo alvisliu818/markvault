@@ -53,8 +53,10 @@ export class BacklinkPanel {
   }
 
   private renderData(data: BacklinksData) {
+    const blocks = data.blockBacklinks ?? [];
     const any =
       this.section("被谁引用", data.backlinks.map((b) => ({ path: b.path, label: this.base(b.path) }))) ||
+      this.section("块引用", blocks.map((b) => ({ path: b.path, label: this.base(b.path) }))) ||
       this.section("引用了谁", data.links.map((l) => ({ path: l.path, label: this.base(l.path) }))) ||
       this.section("未解析链接", data.unresolved.map((u) => ({ path: "", label: u.raw }))) ||
       this.section("提及", data.mentions.map((m) => ({ path: m.path, label: this.base(m.path) })));

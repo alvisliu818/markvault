@@ -75,7 +75,7 @@ async fn render_md(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         let body = md[offset.min(md.len())..].to_string();
         // Obsidian embeds: ![[target]] → inline the target doc's rendered HTML
         let body = expand_embeds(&st, &body);
-        let body = rewrite_relative_links(&body, &req.path);
+        let body = rewrite_relative_links(&body, &req.path, &st);
         // ==mark== highlight (comrak has no native support)
         let body = HIGHLIGHT.replace_all(&body, "<mark>$1</mark>").to_string();
         md = body;
@@ -99,7 +99,7 @@ fn expand_embeds(st: &Arc<AppState>, md: &str) -> String {
                 let (_, off) = crate::vault::extract_frontmatter(&s);
                 let body = &s[off.min(s.len())..];
                 // rewrite embedded content relative to its own location
-                let body = rewrite_relative_links(body, &p);
+                let body = rewrite_relative_links(body, &p, st);
                 return format!(
                     "<div class=\"mv-embed\" data-target=\"{}\"><div class=\"mv-embed-title\">{}<a href=\"/#/doc/{}\">打开</a></div>{}</div>",
                     enc(&p),
@@ -123,7 +123,7 @@ fn expand_embeds(st: &Arc<AppState>, md: &str) -> String {
 
 /// Rewrite relative links so the SPA can fetch them from /vault/*;
 /// wikilinks become hash routes the frontend resolves (path then title).
-fn rewrite_relative_links(md: &str, doc_path: &str) -> String {
+fn rewrite_relative_links(md: &str, doc_path: &str, st: &Arc<AppState>) -> String {
     let dir = match doc_path.rsplit_once('/') {
         Some((d, _)) if !d.is_empty() => format!("/vault/{}", d),
         _ => "/vault".to_string(),
@@ -165,9 +165,50 @@ fn rewrite_relative_links(md: &str, doc_path: &str) -> String {
 
     WIKI.replace_all(&md, |c: &regex::Captures| {
         let target = c[1].trim();
+        let anchor = c.get(2).map(|m| m.as_str().trim().to_string());
+        // block reference [[doc#^id]]: label = 「doc > block text」
+        if let Some(a) = &anchor {
+            let aid = a.trim_start_matches('#').trim();
+            if let Some(bid) = aid.strip_prefix('^') {
+                if !bid.is_empty() {
+                    if let Some(label) = block_ref_label(st, target, bid) {
+                        return format!(
+                            "[{} › {}](/#/doc/{}#{})",
+                            target,
+                            label_trunc(&label),
+                            enc(target),
+                            enc(aid)
+                        );
+                    }
+                }
+            }
+        }
         format!("[{}](/#/doc/{})", &c[0].to_string(), enc(target))
     })
     .to_string()
+}
+
+fn label_trunc(s: &str) -> String {
+    let t = s.trim();
+    if t.chars().count() > 24 {
+        format!("{}…", t.chars().take(24).collect::<String>())
+    } else {
+        t.to_string()
+    }
+}
+
+/// Resolve [[target#^blockid]] to the block text (for preview labels).
+fn block_ref_label(st: &Arc<AppState>, target: &str, block_id: &str) -> Option<String> {
+    let docs = crate::vt::load_doc_infos(st);
+    let p = crate::vt::resolve_target(target, &docs)?;
+    let raw = st.vault.read_file(&p)?;
+    let content = String::from_utf8_lossy(&raw).to_string();
+    let (_, off) = crate::vault::extract_frontmatter(&content);
+    let body = &content[off.min(content.len())..];
+    let needle = format!(" ^{}", block_id);
+    body.lines()
+        .find(|l| l.trim_end().ends_with(&needle))
+        .map(|l| l.trim_end().trim_end_matches(&needle).to_string())
 }
 
 async fn md2text(bytes: Bytes) -> ApiResp {

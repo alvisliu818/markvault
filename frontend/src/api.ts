@@ -83,6 +83,7 @@ export interface BacklinksData {
   links: BacklinkLink[];
   unresolved: { raw: string; anchor: string | null }[];
   backlinks: { path: string }[];
+  blockBacklinks?: { path: string; anchor: string | null }[];
   mentions: { path: string }[];
 }
 

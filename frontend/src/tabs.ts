@@ -74,22 +74,36 @@ export class TabManager {
     if (anchor) this.jumpToAnchor(tab, anchor);
   }
 
-  /** Scroll to the first heading whose text contains the anchor, else first text match. */
+  /** Scroll to `^block-id` line, else heading anchor, else first text match. */
   private jumpToAnchor(tab: EdTab, anchor: string) {
     if (!tab.view) return;
     const doc = tab.view.state.doc;
-    const a = anchor.trim().toLowerCase();
+    const a = anchor.trim();
+    // block ref: ^id at end of line
+    if (a.startsWith("^")) {
+      const re = new RegExp("\\" + a + "\\s*$");
+      for (let i = 1; i <= doc.lines; i++) {
+        const line = doc.line(i);
+        if (re.test(line.text)) {
+          this.jumpLine(tab, i);
+          return;
+        }
+      }
+      this.status(`块引用未找到: ${a}`);
+      return;
+    }
+    const lower = a.toLowerCase();
     for (let i = 1; i <= doc.lines; i++) {
       const line = doc.line(i);
       const m = /^#{1,6}\s+(.*)$/.exec(line.text);
-      if (m && m[1].trim().toLowerCase() === a) {
+      if (m && m[1].trim().toLowerCase() === lower) {
         this.jumpLine(tab, i);
         return;
       }
     }
     for (let i = 1; i <= doc.lines; i++) {
       const line = doc.line(i);
-      if (line.text.toLowerCase().includes(a)) {
+      if (line.text.toLowerCase().includes(lower)) {
         this.jumpLine(tab, i);
         return;
       }

@@ -1,17 +1,19 @@
-feat: M7 block-level operations + wikilink autocomplete
+feat: M7 complete - block reference syntax [[doc#^id]] end-to-end
 
 Kernel:
-- POST /api/block/insertBlock (autoId defaults true, appends SiYuan-style
-  ` ^id`), updateBlock (preserves existing trailing ^id), deleteBlock
-- POST /api/block/getBlockBreadcrumb: heading stack above a line
-- body-relative line addressing, responses carry bodyLine to disambiguate
-  from absolute file lines (getBlockMd stays absolute)
-- id.rs restored and wired (format unit test)
+- POST /api/block/getBlockInfo: locate block by id (camelCase serde fix)
+- renderMd: [[doc#^id]] renders as "target › block text" label with
+  anchored hash link (block_ref_label resolves via vault scan)
+- getBacklinks: blockBacklinks split from doc-level backlinks by ^ anchor
 
 Frontend:
-- wikilink autocomplete: `[[` triggers CM6 autocompletion over docsFacet
-  (label + path detail, E2E-asserted)
-- autocomplete tooltip theming
+- jumpToAnchor: ^block-id support (line-tail match) alongside heading anchors
+- backlinks panel: 块引用 section
+- api.ts BacklinksData.blockBacklinks
 
-Tests: kernel 12/12 (id format + breadcrumb stack added), e2e 19/19
-(autocomplete assertion added)
+All M7 items done: insert/update/delete + auto ^id + breadcrumb + block
+refs + backlinks panel + autocomplete + embeds.
+
+Tests: kernel 12/12, e2e 19/19. Verified end-to-end: insertBlock with
+autoId -> createDoc with [[首页#^id]] -> renderMd label -> blockBacklinks
+-> getBlockInfo -> cleanup via deleteBlock/removeDoc.

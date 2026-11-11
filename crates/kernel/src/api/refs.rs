@@ -72,14 +72,33 @@ async fn get_backlinks(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp
     }
 
     // inbound: any link row whose resolved target == this doc
+    // (split into doc-level and block-level refs by anchor ^id)
     let mut backlinks: Vec<Value> = Vec::new();
+    let mut block_backlinks: Vec<Value> = Vec::new();
     if let Ok(mut stmt) =
-        db.prepare("SELECT DISTINCT src_path FROM links WHERE src_path != ?1 ORDER BY src_path")
+        db.prepare("SELECT DISTINCT src_path, anchor FROM links WHERE src_path != ?1 ORDER BY src_path")
     {
-        if let Ok(rows) = stmt.query_map([&rel], |r| r.get::<_, String>(0)) {
-            for src in rows.flatten() {
-                // resolve all targets of src once per row (small vaults: fine)
-                if doc_links_to(&db, &docs, &src, &rel, &title) {
+        if let Ok(rows) = stmt.query_map([&rel], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+            ))
+        }) {
+            for row in rows.flatten() {
+                let (src, anchor) = row;
+                if !doc_links_to(&db, &docs, &src, &rel, &title) {
+                    continue;
+                }
+                let is_block_ref = anchor
+                    .as_deref()
+                    .map(|a| a.trim_start_matches('#').starts_with('^'))
+                    .unwrap_or(false);
+                if is_block_ref {
+                    block_backlinks.push(json!({
+                        "path": src,
+                        "anchor": anchor,
+                    }));
+                } else {
                     backlinks.push(json!({"path": src}));
                 }
             }
@@ -113,6 +132,7 @@ async fn get_backlinks(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp
         "links": out_links,
         "unresolved": unresoved,
         "backlinks": backlinks,
+        "blockBacklinks": block_backlinks,
         "mentions": mentions,
     }))
 }

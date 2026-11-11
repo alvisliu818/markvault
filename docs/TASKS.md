@@ -16,7 +16,7 @@
 - [ ] **下载管理**：`/api/network/forwardProxy` 已可内核侧抓取；落地"保存图片/文件到 vault assets"端点（`/api/asset/downloadToLocal`），参考 siyuan-plugin-browser `kernel.ts` 的 putFile multipart 契约
 - [ ] 历史记录：`.markvault/storage/browser-history.json` + 历史面板（对齐 bookmarksStore 的 10min 去重/上限策略）
 
-## M7 块级能力（v0.2 主体完成）
+## M7 块级能力（v0.2 全部完成）
 
 `blocks` 表已存 `block_id`（Obsidian `^id` 语法）+ heading/段落结构。
 
@@ -26,7 +26,7 @@
 - [x] **反链面板**：v0.2 已交付 `/api/ref/getBacklinks`，前端"反链" dock；块级反链待 `[[doc#^id]]` 引用语法落地后补充
 - [x] wikilink 自动补全：CM6 autocompletion `[[` 触发，docsFacet 过滤 + label/detail 双列，E2E 断言防回归
 - [x] 嵌入块（`![[doc]]`）渲染：v0.2 renderMd 已实现
-- [ ] `[[doc#^blockId]]` 块引用语法（解析/跳转/渲染，块级反链的地基）
+- [x] `[[doc#^blockId]]` 块引用语法：编辑器跳转（jumpToAnchor 支持 ^id 行尾匹配）+ 预览渲染（renderMd 显示「目标 › 块文本」label + 带锚 hash 链接）+ getBlockInfo 定位端点 + 反链面板块引用分区（blockBacklinks 按 anchor ^ 前缀分流）
 
 ## M8 虚拟树补全（对照两插件残余差异）
 
