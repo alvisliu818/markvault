@@ -1,0 +1,7 @@
+/target
+/frontend/node_modules
+/frontend/dist
+/_e2e/
+/_tmp/
+testvault/.markvault/
+app/src-tauri/target/
