@@ -117,6 +117,61 @@ export async function showSettings() {
           }
         })();
       };
+
+      // ---- multi-workspace pool (ws_list / ws_switch) ----
+      try {
+        const list = (await ta.core.invoke("ws_list")) as {
+          workspace: string;
+          port: number;
+          active: boolean;
+        }[];
+        const rows = list
+          .map(
+            (w) => `<div class="ws-row${w.active ? " active" : ""}">
+              <span class="ws-name">${escapeHtml(w.workspace.split(/[\\\\/]/).pop() || w.workspace)}</span>
+              <span class="ws-port">:${w.port}</span>
+              ${w.active ? '<span class="ws-badge">当前</span>' : `<button class="btn ws-go" data-ws="${escapeHtml(w.workspace)}">切换</button>`}
+            </div>`
+          )
+          .join("");
+        (dialog.querySelector(".actions") as HTMLElement).insertAdjacentHTML(
+          "beforebegin",
+          `<div class="set-row">
+            <label class="set-label">工作区</label>
+            <div class="set-input">
+              ${rows || '<div class="ws-empty">无打开的工作区</div>'}
+              <button class="btn" id="set-ws-add" style="margin-top:6px">新增工作区…</button>
+              <div class="set-hint">每个 vault 一个内核实例（同时最多 3 个），切换时主窗口直接跳转</div>
+            </div>
+          </div>`
+        );
+        dialog.querySelectorAll<HTMLButtonElement>(".ws-go").forEach((b) => {
+          b.onclick = () => {
+            void (async () => {
+              try {
+                const info = await ta.core.invoke("ws_switch", { path: b.dataset.ws });
+                toast(`已切换: ${info.workspace.split(/[\\\\/]/).pop()} (:${info.port})`);
+              } catch (err) {
+                toast("切换失败: " + (err as Error).message);
+              }
+            })();
+          };
+        });
+        (dialog.querySelector("#set-ws-add") as HTMLElement).onclick = () => {
+          void (async () => {
+            try {
+              const dir = await ta.core.invoke("pick_vault_dir");
+              if (!dir) return;
+              const info = await ta.core.invoke("ws_switch", { path: dir });
+              toast(`已打开: ${info.workspace.split(/[\\\\/]/).pop()} (:${info.port})`);
+            } catch (err) {
+              toast("打开失败: " + (err as Error).message);
+            }
+          })();
+        };
+      } catch {
+        /* ws commands unavailable (older shell) */
+      }
     })();
   }
 

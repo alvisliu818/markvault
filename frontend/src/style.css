@@ -356,3 +356,11 @@ body {
 .hist-view { flex: 1; overflow: auto; margin: 0; padding: 10px; border: 1px solid var(--border, #363650); border-radius: 6px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
 .hist-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .hist-hint { font-size: 11px; color: var(--text-dim); }
+
+/* ---- workspace switcher (M11) ---- */
+.ws-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--border, #363650); border-radius: 5px; margin-bottom: 5px; }
+.ws-row.active { border-color: var(--accent-dim, #556); }
+.ws-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.ws-port { font-size: 11px; color: var(--text-dim); }
+.ws-badge { font-size: 11px; color: var(--accent); }
+.ws-empty { font-size: 12px; color: var(--text-dim); }

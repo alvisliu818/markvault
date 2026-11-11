@@ -17,6 +17,9 @@
     "allow-pick-vault-dir",
     "allow-set-workspace",
     "allow-get-shell-conf",
-    "allow-set-autostart"
+    "allow-set-autostart",
+    "allow-ws-list",
+    "allow-ws-switch",
+    "allow-ws-close"
   ]
 }

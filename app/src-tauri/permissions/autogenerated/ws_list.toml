@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ws-list"
+description = "Enables the ws_list command without any pre-configured scope."
+commands.allow = ["ws_list"]
+
+[[permission]]
+identifier = "deny-ws-list"
+description = "Denies the ws_list command without any pre-configured scope."
+commands.deny = ["ws_list"]

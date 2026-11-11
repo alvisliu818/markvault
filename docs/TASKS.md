@@ -61,7 +61,7 @@
 ## M11 更远期
 
 - [~] 同步/历史：文件级快照仓库（仿思源 repo/ 加密快照）或对接已有 LiveSync 方案 —— v0.3 交付本地快照部分：内核 `.markvault/repo/`（snapshot.rs，内容寻址 `<millis>-<chash8>.md` 去重、每文档 30 版上限、plaintext MVP 加密留待后续）+ `/api/repo/createSnapshot|listSnapshots|getSnapshot|restoreSnapshot|cleanSnapshots`；putFile 写前自动快照旧内容；restore 前自动快照当前内容；前端「历史版本」对话框（filetree 右键 + 编辑器工具行「历史」）；单测 3 + E2E 3。LiveSync（CouchDB）对接未做
-- [ ] 多工作区切换（内核 `--workspace` 多实例 or 单实例多 vault）
+- [~] 多工作区切换（内核 `--workspace` 多实例 or 单实例多 vault）—— v0.3 交付路线 A（壳侧多实例）：每个 vault 一个内核实例（随机端口，同时最多 3 个 LRU），`ws_list`/`ws_switch`/`ws_close` 命令；设置面板「工作区」区列出已开实例并可切换/新增（pick_vault_dir → ws_switch）；切换 = 主窗口 navigate 到目标内核 URL（SPA 零改动），注入栏 kernel_origin 同步更新到当前 vault；启动实例随主窗口销毁全部回收。需壳内人工点验
 - [ ] 移动端布局（SPA 响应式 + Tauri mobile）
 - [ ] 插件系统：前端模块加载器 + 内核 `/api/petal/*` 存储约定（对齐思源插件生态形态）
 - [x] 关系图谱（links 表 → force graph canvas）—— v0.3 交付：内核 `POST /api/graph/getGraph`（docs 全量节点 + links 经 resolve_target 解析成 doc→doc 边，未解析目标跳过）；前端右侧「图谱」页签（panels/graph.ts，手写力导向：斥力+边弹簧+中心引力+alpha 衰减、软边界 clamp、hover 高亮邻边、节点点击打开文档、拖拽钉住、滚轮缩放/空白天拖平移/双击复位、IntersectionObserver 首次可见才加载——hidden dock 页 canvas rect=0 会把 backing store 钉死在 50px）；E2E 断言节点统计+canvas 渲染
@@ -77,5 +77,5 @@
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：~~M7 > M8 > M6 > M10 设置页~~、~~已知问题~~、~~图谱~~、~~快照历史~~ 均已交付；M11 剩余按需选做：多工作区 > 插件系统 > 移动端 > LiveSync 对接。
+优先级建议：~~M7 > M8 > M6 > M10 设置页~~、~~已知问题~~、~~图谱~~、~~快照历史~~、~~多工作区~~ 均已交付；M11 剩余按需选做：插件系统 > 移动端 > LiveSync 对接。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

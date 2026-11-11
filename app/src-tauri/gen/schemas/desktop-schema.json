@@ -237,6 +237,24 @@
           "markdownDescription": "Enables the set_workspace command without any pre-configured scope."
         },
         {
+          "description": "Enables the ws_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ws-close",
+          "markdownDescription": "Enables the ws_close command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ws_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ws-list",
+          "markdownDescription": "Enables the ws_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ws_switch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ws-switch",
+          "markdownDescription": "Enables the ws_switch command without any pre-configured scope."
+        },
+        {
           "description": "Denies the browser_act command without any pre-configured scope.",
           "type": "string",
           "const": "deny-browser-act",
@@ -295,6 +313,24 @@
           "type": "string",
           "const": "deny-set-workspace",
           "markdownDescription": "Denies the set_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ws_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ws-close",
+          "markdownDescription": "Denies the ws_close command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ws_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ws-list",
+          "markdownDescription": "Denies the ws_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ws_switch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ws-switch",
+          "markdownDescription": "Denies the ws_switch command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ws-switch"
+description = "Enables the ws_switch command without any pre-configured scope."
+commands.allow = ["ws_switch"]
+
+[[permission]]
+identifier = "deny-ws-switch"
+description = "Denies the ws_switch command without any pre-configured scope."
+commands.deny = ["ws_switch"]

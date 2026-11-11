@@ -15,6 +15,9 @@ fn main() {
             "set_workspace",
             "get_shell_conf",
             "set_autostart",
+            "ws_list",
+            "ws_switch",
+            "ws_close",
         ])),
     )
     .expect("tauri build failed");

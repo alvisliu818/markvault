@@ -42,6 +42,9 @@ app/src-tauri/          Tauri v2 壳
                         为 remote 主窗口授权（allow-browser-*）
 └── src/settings.rs     壳侧设置（M10）：pick_vault_dir（rfd 原生目录对话框）→ set_workspace 写
                         %APPDATA%/markvault/config.json；set_autostart 写 HKCU Run 注册表键；get_shell_conf
+
+（src/workspace.rs      多工作区池（M11 路线 A）：每 vault 一个内核实例（随机端口，≤3 个 LRU），
+                        ws_list/ws_switch/ws_close；切换 = 主窗口 navigate 到目标内核 URL）
 ```
 
 ## 数据流
