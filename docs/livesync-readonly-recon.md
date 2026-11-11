@@ -89,7 +89,15 @@
 - **`applyPull(export)`**：跨分片 chunk 聚合后导出 9 篇 `.md`（12,350 字节，UTF-8 校验通过），vault 未动；同步点推进、临时目录清理。
 - 单测 33/33；修掉一处 S3 回归（docs 预览把 `children` 写成数量导致 applyPull 拿不到 chunk 引用）。
 
-**剩余（S4+）**：全量首拉（174 分片 / 约 775MB）未实测，建议分批 limit 或网络并发调优；导出笔记入索引（`index` 目标）；S5 进度事件推前端；S6 本地 repo 加密；S7 双向。ID 恢复码仍仅剩 chunk ID 校验用途。
+**仍未闭合（S3+）**：单分片只覆盖部分笔记——完整还原需要跨分片合并 + 增量水位（只拉新分片、按 `latest-sync` 跳过已应用）；ID 恢复码仍未用到（chunk ID 校验是可选项，还原只依赖 `passphrase + pbkdf2salt`）。
+
+### S4 实机结果（2026-11-11）：受控导入 vault
+
+`applyPull` 新增 **`target:"import"`**（`notebook` 指定接收笔记本，`includePartial` 默认 false）：还原笔记写到 `<notebook>/<远端相对路径>`，**只新增不覆盖**（已存在即跳过），partial 默认跳过；每个 `.md` 走 `vault.write_file + reindex_one + notify_tree` 标准链路，尊重 readonly；导入后推进同步点。
+
+实机（测试库，notebook=`livesync`）：**导入 9 篇**、0 错误；`lsNotebooks` 出现 `livesync`、`listDocsByPath(/260817)` 目录结构正确、`getFile` 3499 字节可读、**FTS 搜「向量化」命中 1**（索引接入）；重复导入全部 `skippedExisting`（幂等）。验证后导入数据已删除，watcher 自动反索引（FTS 归零）。
+
+**剩余（S5+）**：全量首拉（约 775MB）未实测；S5 进度推前端；S6 本地 repo 加密；S7 双向（需冲突策略评审）。ID 恢复码仍仅剩 chunk ID 校验用途。
 
 ## 5. 工程注意
 

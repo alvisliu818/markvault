@@ -138,7 +138,7 @@ MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。
 | `/api/sync/getSourceState` | — | SigV4 只读列对象：`{source, remoteObjects, shards, bytes, latestShard, localSyncPoint, readonly:true}` |
 | `/api/sync/planPull` | `{limit?: 1..20}` | 下载最新 N 个分片 → PBKDF2/HKDF/AES-GCM 解密 → raw deflate → JSONL 解析；返回 `{planId, token, shards, lines, uniqueIds, parseErrors, docs[], note}`。`docs` 为元数据预览（id/type/path/size/children/dataPrefix），**不写任何文件** |
 | `/api/sync/getPlan` | `{planId}` | 后台任务的进度轮询：`{phase, progress, progressTotal, error, done, shards, skippedShards, lines, parseErrors, docsTotal, docsComplete, docsPartial, docsUncovered, chunks, docsPreview[≤50]}` |
-| `/api/sync/applyPull` | `{planId, token, target:"export"\|"index"}` | 校验 plan/token 且 phase=done；`export` 按 `children` 拼接正文写出真实 `.md` 到 `.markvault/export/livesync-<时间戳>/`（防穿越过滤），推进同步点并清理临时 chunk；`index` 返回「后续阶段」。**不覆盖 vault** |
+| `/api/sync/applyPull` | `{planId, token, target:"export"\|"import", notebook?, includePartial?}` | 校验 plan/token 且 phase=done。`export` 写 `.md` 到独立导出目录；`import` **受控导入 vault**：写到 `<notebook>/<远端相对路径>`（notebook 默认需显式传入），**只新增不覆盖**，partial 笔记默认跳过（`includePartial:true` 才导入），每个 `.md` 走 reindex + notify（文件树/FTS 立即可见），并推进同步点。不传 target 默认 `export` |
 
 > S3 起行为：`planPull` 是**后台任务**，立即返回 `{planId, token, phase:"preparing"}`，进度轮询 `getPlan`；默认**增量水位**（只拉 `latest-sync` 之后的分片，`skippedShards` 记录跳过数），`{full:true}` 强制全量；解密后的 chunk 写入内容寻址临时目录（`.markvault/tmp/livesync-<id>/chunks/`），applyPull 成功后清理。单分片只覆盖部分笔记，跨分片合并靠 plan 聚合多个分片的 chunk。
 

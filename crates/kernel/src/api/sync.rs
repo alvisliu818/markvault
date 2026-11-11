@@ -862,6 +862,12 @@ struct ApplyReq {
     token: String,
     #[serde(default)]
     target: String,
+    /// import only: notebook under the vault that receives the notes
+    #[serde(default)]
+    notebook: String,
+    /// import only: also import notes whose chunks are only partially covered
+    #[serde(default)]
+    include_partial: bool,
 }
 
 /// Sanitize a remote path into a safe relative export path.
@@ -932,8 +938,11 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     } else {
         &req.target
     };
+    if target == "import" {
+        return import_into_vault(&st, &req, &docs, &chunks, &pbk, &shards);
+    }
     if target != "export" {
-        return ApiResp::err(-1, "target must be export (index pipeline is a later stage)");
+        return ApiResp::err(-1, "target must be export or import");
     }
     let passphrase = cfg_passphrase();
     let dir = st
@@ -1043,6 +1052,110 @@ fn done_and_ok(phase: &str, error: &Option<String>) -> bool {
 
 fn cfg_passphrase() -> String {
     std::env::var("MARKVAULT_SYNC_PASSPHRASE").unwrap_or_default()
+}
+
+/// `target=import`: write reconstructed notes into the vault under
+/// `<notebook>/<remote-relative-path>`. Add-only — existing files and
+/// partial-coverage notes are skipped by default; every `.md` goes through
+/// the standard reindex + notify path so the file tree picks them up.
+fn import_into_vault(
+    st: &AppState,
+    req: &ApplyReq,
+    docs: &[Value],
+    chunks: &HashMap<String, PathBuf>,
+    pbk: &[u8],
+    shards: &[String],
+) -> ApiResp {
+    if let Some(e) = super::check_writable(st) {
+        return e;
+    }
+    let nb = req.notebook.trim().trim_matches('/');
+    if nb.is_empty() || nb.contains("..") {
+        return ApiResp::err(-1, "notebook required for target=import");
+    }
+    let mut imported = 0usize;
+    let mut skipped_existing = 0usize;
+    let mut skipped_partial = 0usize;
+    let mut skipped_empty = 0usize;
+    let mut errors = 0usize;
+    let mut body_bytes_total = 0usize;
+    for d in docs {
+        let t = d.get("type").and_then(Value::as_str).unwrap_or("");
+        if !is_main_doc(t) {
+            continue;
+        }
+        let children = d
+            .get("children")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut pieces: Vec<String> = Vec::new();
+        let mut miss = 0usize;
+        for c in &children {
+            let cid = c.as_str().unwrap_or("");
+            match chunks.get(cid) {
+                Some(file) => match std::fs::read_to_string(file) {
+                    Ok(body) => match decrypt_field(&body, &cfg_passphrase(), pbk) {
+                        Ok(piece) => pieces.push(piece),
+                        Err(_) => miss += 1,
+                    },
+                    Err(_) => miss += 1,
+                },
+                None => miss += 1,
+            }
+        }
+        if pieces.is_empty() {
+            skipped_empty += 1;
+            continue;
+        }
+        if miss > 0 && !req.include_partial {
+            skipped_partial += 1;
+            continue;
+        }
+        let raw_path = d.get("path").and_then(Value::as_str).unwrap_or("");
+        let Some(rel_tail) = safe_relative_path(raw_path) else {
+            skipped_partial += 1;
+            continue;
+        };
+        let rel = format!("{}/{}", nb, rel_tail.to_string_lossy().replace('\\', "/"));
+        // add-only: never overwrite an existing note
+        if st.vault.read_file(&rel).is_some() {
+            skipped_existing += 1;
+            continue;
+        }
+        let body = pieces.join("");
+        match st.vault.write_file(&rel, body.as_bytes()) {
+            Ok(_) => {
+                imported += 1;
+                body_bytes_total += body.len();
+                if rel.ends_with(".md") {
+                    super::ops::reindex_one(st, &rel);
+                }
+            }
+            Err(_) => errors += 1,
+        }
+    }
+    if imported > 0 {
+        super::ops::notify_tree();
+    }
+    if let Some(latest) = shards.iter().max() {
+        let p = sync_point_path(st);
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&p, latest);
+    }
+    set_status("done", 1, "");
+    ApiResp::ok(json!({
+        "imported": imported,
+        "skippedExisting": skipped_existing,
+        "skippedPartial": skipped_partial,
+        "skippedEmpty": skipped_empty,
+        "errors": errors,
+        "bodyBytesTotal": body_bytes_total,
+        "notebook": nb,
+        "note": "add-only import; existing notes were never overwritten",
+    }))
 }
 
 // ---------------------------------------------------------------- tests
