@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>markvault v0.2 迭代总结</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --ink: #141414;
+    --dim: #6b6f76;
+    --hair: #d9dbde;
+    --accent: #2f5fd0;
+    --mono: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+    --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 40px 80px; }
+
+  /* ---------- header ---------- */
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .kicker b { color: var(--accent); font-weight: 600; }
+  h1 {
+    font-size: 44px;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    margin: 14px 0 10px;
+  }
+  h1 .v { color: var(--accent); }
+  .lede {
+    font-size: 16.5px;
+    color: #3c3f44;
+    max-width: 62ch;
+    margin-bottom: 8px;
+  }
+  .meta-row {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 18px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--hair);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 26px;
+  }
+  .meta-row span b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- metrics ---------- */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border-bottom: 1px solid var(--hair);
+  }
+  .metric {
+    padding: 20px 18px 18px 0;
+    border-right: 1px solid var(--hair);
+    margin-right: 18px;
+  }
+  .metric:last-child { border-right: none; margin-right: 0; }
+  .metric .n {
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric .l {
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 3px;
+    letter-spacing: 0.02em;
+  }
+
+  /* ---------- sections ---------- */
+  section { padding-top: 44px; }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid var(--hair);
+    padding-bottom: 10px;
+    margin-bottom: 22px;
+  }
+  .sec-head h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
+  .sec-head .no {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+  .sec-head .aside { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+
+  /* ---------- rounds ---------- */
+  .round { display: grid; grid-template-columns: 172px 1fr; gap: 0 28px; padding: 18px 0; border-bottom: 1px solid var(--hair); }
+  .round:last-child { border-bottom: none; }
+  .round .when .c {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent);
+  }
+  .round .when .t { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .round .what h3 { font-size: 15.5px; font-weight: 600; margin-bottom: 6px; }
+  .round .what .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    border: 1px solid var(--hair);
+    color: var(--dim);
+    padding: 1px 7px;
+    margin-right: 6px;
+    vertical-align: 1px;
+  }
+  .round .what ul { margin: 6px 0 0 0; padding-left: 18px; color: #33363b; }
+  .round .what li { margin-bottom: 3px; }
+  .round .what li b { font-weight: 550; color: var(--ink); }
+  .round .what .fix {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--dim);
+    border-left: 2px solid var(--hair);
+    padding-left: 10px;
+  }
+  .round .what .fix b { color: var(--ink); font-weight: 550; }
+
+  /* ---------- bug table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--dim);
+    font-weight: 500;
+    padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--ink);
+  }
+  td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  td.mono { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; color: var(--dim); }
+  td .hit { color: var(--accent); font-weight: 550; }
+  td p { margin: 0; }
+  td p + p { margin-top: 4px; color: #55595f; font-size: 13px; }
+
+  /* ---------- milestones ---------- */
+  .ms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 44px; }
+  .ms { padding: 14px 0; border-bottom: 1px solid var(--hair); display: flex; gap: 12px; align-items: baseline; }
+  .ms .id { font-family: var(--mono); font-size: 13px; color: var(--accent); width: 38px; flex-shrink: 0; }
+  .ms .nm { font-weight: 600; }
+  .ms .st { margin-left: auto; font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; }
+  .ms .st.done { color: var(--accent); }
+  .ms .st.rest { color: var(--dim); }
+
+  /* ---------- rest ---------- */
+  .rest-list { padding-left: 18px; color: #33363b; }
+  .rest-list li { margin-bottom: 5px; }
+  .rest-list li b { font-weight: 550; }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 16px;
+    border-top: 1px solid var(--hair);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--dim);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 24px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 860px) {
+    .metrics { grid-template-columns: repeat(3, 1fr); }
+    .metric:nth-child(3n) { border-right: none; margin-right: 0; }
+    .round { grid-template-columns: 1fr; gap: 8px; }
+    .ms-grid { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { font-size: 12.5px; }
+    .wrap { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">markvault · rust note-taking kernel · <b>iteration report</b></div>
+    <h1>v0.2 迭代总结<span class="v"> — 四里程碑打勾</span></h1>
+    <p class="lede">2026-11-11 单日五轮迭代：M9 编辑器体验 → M10 打包发布 → M7 块级操作与块引用 → M8 虚拟树补全。每轮构建、单测、E2E 全绿后提交推送。</p>
+    <div class="meta-row">
+      <span>commits <b>326c789 → 5aaf10d</b>（7 个功能提交）</span>
+      <span>仓库 <b>github.com/alvisliu818/markvault</b></span>
+      <span>技术栈 <b>Rust · axum · SQLite FTS5 · CM6 · Tauri v2</b></span>
+    </div>
+  </header>
+
+  <div class="metrics">
+    <div class="metric"><div class="n">4</div><div class="l">里程碑完成 M7/M8/M9/M10</div></div>
+    <div class="metric"><div class="n">14</div><div class="l">内核单测（v0.1 时 9）</div></div>
+    <div class="metric"><div class="n">19</div><div class="l">E2E 断言（v0.1 时 14）</div></div>
+    <div class="metric"><div class="n">0</div><div class="l">cargo warning（原 9）</div></div>
+    <div class="metric"><div class="n">6.27<span style="font-size:16px"> MiB</span></div><div class="l">NSIS 安装包</div></div>
+    <div class="metric"><div class="n">62<span style="font-size:16px"> ms</span></div><div class="l">增量索引（8 docs 二次启动）</div></div>
+  </div>
+
+  <section>
+    <div class="sec-head"><span class="no">01</span><h2>五轮迭代</h2><span class="aside">每轮 = 构建 → 测试 → 提交推送</span></div>
+
+    <div class="round">
+      <div class="when"><div class="c">f237143</div><div class="t">v0.2 · 第一轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M9</span>编辑器与写作体验</h3>
+        <ul>
+          <li><b>内核</b>：反链 API（正向/反向/伪反链）、导出 API（内置 STORE zip writer 含结构单测）、renderMd 增强（<b>![[doc]] 嵌入展开</b>、==高亮==、脚注）、readDir 点过滤</li>
+          <li><b>前端</b>：live-preview 五组装饰（标题行语义字号、wikilink 解析态配色、==高亮==、块 id 隐藏、整行图片内联）、frontmatter 表格编辑器、面包屑、反链 dock、[[链接#锚点]] 跳转、未解析链接点击创建、图片粘贴上传 assets</li>
+        </ul>
+        <p class="fix"><b>真 bug</b>：v0.1 起 5 个 CM6 装饰插件全部漏传 <b>{decorations} spec</b>——装饰集合算了但从未渲染，E2E 无 DOM 断言漏网。探针 querySelectorAll 计数抓现形后统一修复。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">e955058</div><div class="t">v0.2 · 第二轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M10</span>工程化与打包发布</h3>
+        <ul>
+          <li><b>增量索引</b>：index_meta 表（mtime+size 戳）跳过未变文件，二次启动索引阶段 62ms/8docs；手动重建走 force 全量；boot/rebuild 接 WS progress</li>
+          <li><b>--log-file</b>：内置 Rolling writer（5MB × 3 循环）；Tauri 壳默认带上拉起内核</li>
+          <li><b>NSIS 安装包</b>：6.27 MiB（sidecar 内核 + 前端全资源），15 件套图标 PIL 生成，一键打包脚本，release 壳冒烟验证</li>
+          <li><b>SPA 设置面板</b>：conf 全字段可视化编辑；<b>CI</b>：cargo test+clippy / tsc+build / headless Edge 三 job</li>
+        </ul>
+        <p class="fix"><b>环境坑</b>：tauri-cli 内嵌构建与手动 cargo 竞态报 E0463 → 分步构建；NSIS 组件 GitHub 裸连超时 → 代理解决。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">d98dc2c</div><div class="t">v0.2 · 第三轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M7</span>块级操作 + wikilink 补全</h3>
+        <ul>
+          <li><b>insertBlock / updateBlock / deleteBlock</b>：body 相对行定位，insert 自动追加思源式 <b>^id</b>（id.rs 恢复接线），update 保留已有 ^id 不破坏引用</li>
+          <li><b>getBlockBreadcrumb</b>：按行回溯 heading 栈（降栈算法含单测）；响应统一带 bodyLine 与文件绝对行消歧</li>
+          <li><b>[[ 下拉补全</b>：CM6 autocompletion 接 docsFacet，label + 路径 detail，E2E 断言防回归</li>
+        </ul>
+        <p class="fix"><b>假阴性陷阱</b>：块操作 line 语义（body 相对）与 getBlockMd（文件绝对）错位 5 行 frontmatter，「插入成功但读回为空」——用全文 grep 而非单行读破案，API 契约补 bodyLine 字段。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">77edaf6</div><div class="t">v0.2 · 第四轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M7 ✓</span>块引用语法 [[doc#^id]] 全链路</h3>
+        <ul>
+          <li><b>getBlockInfo</b>：按块 ID 定位（camelCase serde 坑一次修掉）</li>
+          <li><b>renderMd</b>：块引用渲染为「目标 › 块文本」label + 带锚 hash 链接</li>
+          <li><b>反链分流</b>：blockBacklinks（^ 锚点）与文档级 backlinks 分区展示；编辑器 ^id 行尾匹配跳转</li>
+        </ul>
+        <p class="fix"><b>闭环验证</b>：insert(autoId) → 建文档写引用 → 渲染 label → 反链命中 → 定位 → 清理，全链路实测通过。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">5aaf10d</div><div class="t">v0.2 · 第五轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M8 ✓</span>虚拟树补全（两插件功能并集收口）</h3>
+        <ul>
+          <li><b>moveNode</b>：拖拽跨父移动 = 改写 frontmatter parent（detach 前端确认防误删）；同父仍走拖拽序持久化</li>
+          <li><b>includePhysicalSubtree</b>：目录子树内未链接文档并入关系树（单测覆盖直接/深层/排除他笔记本）</li>
+          <li><b>排序双模式</b>：weight（默认，v0.1 三级排序兼容）/ name 真接入 build_subtree；面板切换按钮、Alt+L 定位快捷键、挂载树「提升到顶层」、filetree 右键挂载联动</li>
+        </ul>
+        <p class="fix"><b>兼容性教训</b>：改默认排序值打挂 v0.1 单测——默认值是契约，新模式应 additive；detach 有损属性行为补确认对话框。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="no">02</span><h2>踩坑与沉淀</h2><span class="aside">5 条可复用教训，均已入 MEMORY.md</span></div>
+    <table>
+      <thead><tr><th style="width:150px">类别</th><th>问题</th><th style="width:340px">破案手段 → 规则</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">CM6 · 装饰</td>
+          <td><p>ViewPlugin 漏传 <span class="hit">{decorations} spec</span>，插件运行但装饰永不渲染；v0.1 wikilink/块id 装饰从未真正生效</p></td>
+          <td><p>探针 DOM 计数（querySelectorAll = 0）</p><p>规则：新装饰插件必带 spec + E2E 断言装饰 DOM 存在</p></td>
+        </tr>
+        <tr>
+          <td class="mono">并发 · 死锁</td>
+          <td><p>refs.rs 持 db Mutex 调内部再 lock 的 helper，请求挂死无响应（v0.1 同坑再现）</p></td>
+          <td><p>病征远离病灶：先取数据再持锁</p><p>规则：跨 helper 调用先核对锁的获取链</p></td>
+        </tr>
+        <tr>
+          <td class="mono">API · 行号语义</td>
+          <td><p>body 相对行 vs 文件绝对行错位 5 行 frontmatter，验证全绿实为假阴性</p></td>
+          <td><p>全文 grep 替代单行读</p><p>规则：双行号语义 API 响应显式标注 bodyLine</p></td>
+        </tr>
+        <tr>
+          <td class="mono">serde · 命名</td>
+          <td><p>Rust block_id 默认匹配 JSON block_id，前端发 blockId 静默落空串</p></td>
+          <td><p>响应回读比对定位</p><p>规则：新 DTO 默认带 rename_all = "camelCase"</p></td>
+        </tr>
+        <tr>
+          <td class="mono">兼容 · 默认值</td>
+          <td><p>改 sortMethod 默认值打挂 v0.1 排序单测</p></td>
+          <td><p>单测即契约</p><p>规则：默认值向后兼容，新模式 additive</p></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="no">03</span><h2>里程碑状态</h2><span class="aside">TASKS.md 已同步打勾</span></div>
+    <div class="ms-grid">
+      <div class="ms"><span class="id">M7</span><span class="nm">块级能力</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M8</span><span class="nm">虚拟树补全</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M9</span><span class="nm">编辑器与写作体验</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M10</span><span class="nm">工程化与打包</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M6</span><span class="nm">内嵌浏览器（多窗口方案）</span><span class="st rest">PENDING</span></div>
+      <div class="ms"><span class="id">M11</span><span class="nm">同步 / 移动端 / 插件系统</span><span class="st rest">BACKLOG</span></div>
+    </div>
+    <div style="margin-top:22px">
+      <ul class="rest-list">
+        <li><b>下一步首选 M6</b>：每个页签一个 Tauri WebviewWindow + browser.rs 窗口组；数据面（书签/剪藏/forwardProxy）已全部就绪，纯壳工程</li>
+        <li>顺手项：caseSensitive 的 UI 入口、Tauri 壳侧 vault 选择对话框、E2E 补图片粘贴/锚点跳转/拖拽排序 mock、[[doc#^id]] 补全下拉支持块引用</li>
+        <li>已知问题清单剩 4 项（subFileCount 语义、watcher 目录重命名、Tauri hash 路由验证），均为低危</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <span>markvault v0.2</span>
+    <span>2026-11-11</span>
+    <span><a href="https://github.com/alvisliu818/markvault">github.com/alvisliu818/markvault</a></span>
+    <span>installer: app/src-tauri/target/release/bundle/nsis/markvault_0.2.0_x64-setup.exe</span>
+  </footer>
+
+</div>
+</body>
+</html>
