@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>markvault v0.3 迭代总结</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --ink: #141414;
+    --dim: #6b6f76;
+    --hair: #d9dbde;
+    --accent: #2f5fd0;
+    --mono: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+    --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 40px 80px; }
+
+  /* ---------- header ---------- */
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .kicker b { color: var(--accent); font-weight: 600; }
+  h1 {
+    font-size: 44px;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    margin: 14px 0 10px;
+  }
+  h1 .v { color: var(--accent); }
+  .lede {
+    font-size: 16.5px;
+    color: #3c3f44;
+    max-width: 62ch;
+    margin-bottom: 8px;
+  }
+  .meta-row {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 18px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--hair);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 26px;
+  }
+  .meta-row span b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- metrics ---------- */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border-bottom: 1px solid var(--hair);
+  }
+  .metric {
+    padding: 20px 18px 18px 0;
+    border-right: 1px solid var(--hair);
+    margin-right: 18px;
+  }
+  .metric:last-child { border-right: none; margin-right: 0; }
+  .metric .n {
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric .l {
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 3px;
+    letter-spacing: 0.02em;
+  }
+
+  /* ---------- sections ---------- */
+  section { padding-top: 44px; }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid var(--hair);
+    padding-bottom: 10px;
+    margin-bottom: 22px;
+  }
+  .sec-head h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
+  .sec-head .no {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+  .sec-head .aside { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+
+  /* ---------- rounds ---------- */
+  .round { display: grid; grid-template-columns: 172px 1fr; gap: 0 28px; padding: 18px 0; border-bottom: 1px solid var(--hair); }
+  .round:last-child { border-bottom: none; }
+  .round .when .c {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent);
+  }
+  .round .when .t { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .round .what h3 { font-size: 15.5px; font-weight: 600; margin-bottom: 6px; }
+  .round .what .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    border: 1px solid var(--hair);
+    color: var(--dim);
+    padding: 1px 7px;
+    margin-right: 6px;
+    vertical-align: 1px;
+  }
+  .round .what ul { margin: 6px 0 0 0; padding-left: 18px; color: #33363b; }
+  .round .what li { margin-bottom: 3px; }
+  .round .what li b { font-weight: 550; color: var(--ink); }
+  .round .what .fix {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--dim);
+    border-left: 2px solid var(--hair);
+    padding-left: 10px;
+  }
+  .round .what .fix b { color: var(--ink); font-weight: 550; }
+  code { font-family: var(--mono); font-size: 12.5px; }
+
+  /* ---------- bug table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--dim);
+    font-weight: 500;
+    padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--ink);
+  }
+  td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  td.mono { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; color: var(--dim); }
+  td .hit { color: var(--accent); font-weight: 550; }
+  td p { margin: 0; }
+  td p + p { margin-top: 4px; color: #55595f; font-size: 13px; }
+
+  /* ---------- milestones ---------- */
+  .ms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 44px; }
+  .ms { padding: 14px 0; border-bottom: 1px solid var(--hair); display: flex; gap: 12px; align-items: baseline; }
+  .ms .id { font-family: var(--mono); font-size: 13px; color: var(--accent); width: 38px; flex-shrink: 0; }
+  .ms .nm { font-weight: 600; }
+  .ms .st { margin-left: auto; font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; }
+  .ms .st.done { color: var(--accent); }
+  .ms .st.rest { color: var(--dim); }
+
+  /* ---------- rest / verify ---------- */
+  .rest-list { padding-left: 18px; color: #33363b; }
+  .rest-list li { margin-bottom: 5px; }
+  .rest-list li b { font-weight: 550; }
+  .subhead { font-size: 13px; font-weight: 600; margin: 26px 0 8px; }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 16px;
+    border-top: 1px solid var(--hair);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--dim);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 24px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  a.ref { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--hair); }
+
+  @media (max-width: 860px) {
+    .metrics { grid-template-columns: repeat(3, 1fr); }
+    .metric:nth-child(3n) { border-right: none; margin-right: 0; }
+    .round { grid-template-columns: 1fr; gap: 8px; }
+    .ms-grid { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { font-size: 12.5px; }
+    .wrap { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">markvault · rust note-taking kernel · <b>iteration report</b></div>
+    <h1>v0.3 迭代总结<span class="v"> — 新能力收口，地基返修</span></h1>
+    <p class="lede">2026-11-11 下午八次提交：M6 内嵌浏览器 → watcher 地基返修 → 关系图谱 / 快照历史 / 多工作区 / 插件系统 / 响应式。v0.2 四里程碑之后，M6 与 M11 主体全部落地；顺藤摸出两个从 v0.1 潜伏至今的索引 bug。</p>
+    <div class="meta-row">
+      <span>commits <b>43d0cb6 → 591ac31</b>（8 次提交）</span>
+      <span>仓库 <b>github.com/alvisliu818/markvault</b></span>
+      <span>技术栈 <b>Rust · axum · SQLite FTS5 · CM6 · Tauri v2</b></span>
+      <span>规模 <b>53 files · +4585 / −226</b></span>
+    </div>
+  </header>
+
+  <div class="metrics">
+    <div class="metric"><div class="n">8</div><div class="l">提交（v0.3 阶段）</div></div>
+    <div class="metric"><div class="n">5</div><div class="l">新增内核 API 组 / 18 端点</div></div>
+    <div class="metric"><div class="n">26</div><div class="l">内核单测（v0.2 时 14）</div></div>
+    <div class="metric"><div class="n">41</div><div class="l">E2E 断言（v0.2 时 18）</div></div>
+    <div class="metric"><div class="n">13</div><div class="l">Tauri IPC 命令（新增）</div></div>
+    <div class="metric"><div class="n">12</div><div class="l">新增源码文件</div></div>
+  </div>
+
+  <section>
+    <div class="sec-head"><span class="no">01</span><h2>八轮提交</h2><span class="aside">每轮 = 构建 → 测试 → 提交</span></div>
+
+    <div class="round">
+      <div class="when"><div class="c">dfb9b25</div><div class="t">v0.3 · 第 0 轮</div></div>
+      <div class="what">
+        <h3><span class="tag">CHORE</span>按用户要求关闭 CI/CD</h3>
+        <ul>
+          <li>删除 <code>.github/workflows/ci.yml</code>（kernel / frontend / e2e 三 job），清理遗留的 <code>_commitmsg.txt</code>；验证链保留在本地：<code>cargo test</code> + <code>clippy</code> + <code>node e2e/check.mjs</code></li>
+        </ul>
+        <p class="fix"><b>影响</b>：后续每轮仍按「构建 → 单测 → E2E → 提交」交付，只是不再由远端 workflow 触发；报告里的 26/26 与 41/41 均为本地实测口径。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">fbdcc88</div><div class="t">v0.3 · 第一轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M6 ✓</span>内嵌浏览器（Tauri 多窗口方案）</h3>
+        <ul>
+          <li><b>壳侧</b>：Tauri v2 无嵌套 webview → 每个页签一个 <code>WebviewWindow</code>（label <code>browser-&lt;tabId&gt;</code>）；<code>browser.rs</code> 提供 6 个 IPC 命令（open / navigate / act / close / focus / list）+ 500ms 轮询上报 url/title（<code>browser:opened|url|closed</code> 事件）</li>
+          <li><b>SPA</b>：浏览器面板只做控制器——地址栏补全（http/https/搜索词 → Bing 回退，移植 siyuan-plugin-browser <code>normalizeUrl</code>）、前进/后退/刷新/停止、页签切换与激活</li>
+          <li><b>剪藏 / 收藏 / 下载</b>：窗口内注入操作栏（<code>window.__mvBar</code> 防重、轮询重注入）；收藏 → <code>/api/bookmark/add</code>，剪 HTML → <code>/api/clip/clipHtml</code>，下载 → 新增 <code>/api/asset/downloadToLocal</code>（URL basename 解码 / 非法字符过滤 / <code>-2</code> 防覆盖）</li>
+          <li><b>历史</b>：<code>.markvault/storage/browser-history.json</code> + <code>/api/history/list|add|remove|clear</code>，10 分钟内同 URL 去重更新、5000 条上限截尾（对齐 siyuan historyStore，含 5 个单测）</li>
+        </ul>
+        <p class="fix"><b>两个边界</b>：①Tauri <code>eval</code> 注入不受页面 CSP 限制，但页面自身的 <code>fetch</code> 受 <code>connect-src</code> 约束 → 严格 CSP 站点的注入栏会报网络错误，回退面板 <code>clipUrl</code>；②主窗口从内核 URL 加载属 remote origin，默认够不到自定义命令 → <code>capabilities/main.json</code> 显式授权 13 个 <code>allow-*</code> + <code>withGlobalTauri</code>。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">9787645</div><div class="t">v0.3 · 第二轮</div></div>
+      <div class="what">
+        <h3><span class="tag">FIX</span>watcher 地基返修 + 壳侧设置</h3>
+        <ul>
+          <li><b>两个潜伏 bug</b>：<code>start_watcher</code> 的 debouncer 是栈上局部变量、函数返回即 drop → <b>watcher 自 v0.1 起从未真正工作</b>；debouncer-full 把路径归一成 <code>//?/E:/...</code>，Windows path parser 不认，<code>vault.rel</code> 的 <code>strip_prefix</code> 全部失败</li>
+          <li><b>目录级事件</b>：新建 / 删除 / 改名走精确 prefix 重索引（旧路径 <code>unindex("dir/")</code> 防兄弟目录误删，新路径 <code>reindex_prefix</code>），不再退化为「全量结构广播」</li>
+          <li><b>语义对齐</b>：<code>listDocsByPath</code> 的 folder <code>subFileCount</code> 由全递归计数改为直接子文档数（<code>LIKE dir/% AND NOT LIKE dir/%/%</code>），与 Obsidian 版一致</li>
+          <li><b>M10 壳设置</b>：<code>pick_vault_dir</code>（rfd 原生目录对话框）→ <code>set_workspace</code> 写 <code>%APPDATA%/markvault/config.json</code>；<code>set_autostart</code> 写 HKCU Run 键；SPA 设置面板新增壳区与工作区区</li>
+        </ul>
+        <p class="fix"><b>为什么拖到现在</b>：boot 全量索引 + API 内部 reindex 把「外部改文件没有自动更新」完全掩盖了——只有端到端断言「外部改名 → 索引路径变化」能抓现形。修法：debouncer 所有权移入工作线程，路径用 <code>normalize_win</code> 字符串级前缀回退。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">9e4cdf6</div><div class="t">v0.3 · 第三轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M11</span>关系图谱（links 表 → 力导向 canvas）</h3>
+        <ul>
+          <li><b>内核</b>：<code>/api/graph/getGraph</code> 返回 docs 全量节点（含孤立文档）+ links 表经 <code>resolve_target</code> 解析的 doc→doc 边（未解析 / 自环 / 重复边跳过）；先取 infos 再锁 db，规避 v0.2 踩过的 Mutex 重入死锁</li>
+          <li><b>前端</b>：<code>panels/graph.ts</code> 手写力导向（斥力 + 边弹簧 + 中心引力 + alpha 衰减、软边界 clamp），hover 高亮邻边、点击开文档、拖拽钉住、滚轮缩放 / 空白拖平移 / 双击复位</li>
+        </ul>
+        <p class="fix"><b>隐藏页陷阱</b>：canvas 挂在默认 <code>hidden</code> 的 dock 页，<code>getBoundingClientRect()</code> 为 0，<code>fitCanvas</code> 的 50px 兜底会把 backing store 永久钉死 → <code>IntersectionObserver</code> 首次可见才 <code>load()</code>，再次进入抬 alpha 唤醒模拟。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">c22cd6b</div><div class="t">v0.3 · 第四轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M11</span>文件级快照历史</h3>
+        <ul>
+          <li><b>存储</b>：<code>.markvault/repo/&lt;sha256(path)[0..16]&gt;/&lt;millis&gt;-&lt;chash8&gt;.md</code>，内容寻址去重、每文档保留最新 30 版；<code>read</code> 拒绝 <code>/ \ ..</code> 防目录穿越</li>
+          <li><b>自动留痕</b>：<code>putFile</code> 写 <code>.md</code> 前自动快照旧内容，<code>restoreSnapshot</code> 恢复前自动快照当前内容（恢复本身也可回滚）</li>
+          <li><b>API / UI</b>：<code>/api/repo/createSnapshot|listSnapshots|getSnapshot|restoreSnapshot|cleanSnapshots</code>；「历史版本」对话框（文件树右键 + 编辑器工具行「历史」）列表 / 预览 / 恢复 / 手动快照</li>
+        </ul>
+        <p class="fix"><b>MVP 边界</b>：明文存储、本地单 vault，加密与 LiveSync（CouchDB）对接留待后续；<code>cleanSnapshots</code> 的 <code>path</code> 为空会清整个 repo，UI 未暴露该入口。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">00293d8</div><div class="t">v0.3 · 第五轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M11</span>多工作区切换（路线 A：壳侧实例池）</h3>
+        <ul>
+          <li>每个 vault 一个内核实例（随机端口，同时最多 3 个、LRU 淘汰），<code>ws_list / ws_switch / ws_close</code> 三个命令；设置面板「工作区」区列出已开实例并可切换 / 新增</li>
+          <li><b>切换 = 主窗口 navigate 到目标内核 URL</b>（SPA 零改动），同时同步注入栏的 <code>kernel_origin</code> 与 <code>AppMeta.workspace</code>；主窗口销毁时回收全部实例</li>
+        </ul>
+        <p class="fix"><b>未点验项</b>：E2E 跑在浏览器环境，触不到 Tauri IPC —— vault picker、开机自启、多工作区切换的实际桌面壳行为<b>需壳内人工点验</b>，不宣称已验证。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">5ecd1ed</div><div class="t">v0.3 · 第六轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M11 ✓</span>插件系统（对齐思源 petal 生态形态）</h3>
+        <ul>
+          <li><b>内核</b>：<code>.markvault/petal/petals.json</code> 注册表 + 每插件 <code>conf.json</code>；<code>/api/petal/loadPetals|setPetals|getPetalConf|setPetalConf</code>，插件名 <code>[a-z0-9-]</code> 白名单校验（含单测）；<code>/petal/&lt;name&gt;/</code> ServeDir 只读静态托管</li>
+          <li><b>前端</b>：<code>petal/loader.ts</code> 动态 <code>import("/petal/&lt;name&gt;/index.js")</code>，宿主暴露 api / ui / getActiveDoc / insertToActiveDoc / addCommand，<code>onload/onunload</code> 生命周期；工具栏「命令」按钮聚合插件命令</li>
+          <li>示例插件 sample 全链路 E2E：托管 → 注册 → 加载 → 命令 → toast</li>
+        </ul>
+        <p class="fix"><b>信任模型</b>：用户自装插件（同思源），加载即执行任意 JS，无沙箱；后续可补签名校验与插件集市。</p>
+      </div>
+    </div>
+
+    <div class="round">
+      <div class="when"><div class="c">591ac31</div><div class="t">v0.3 · 第七轮</div></div>
+      <div class="what">
+        <h3><span class="tag">M11</span>移动端响应式 + 设置面板收口</h3>
+        <ul>
+          <li><b>响应式</b>：≤860px 时 dock / right 变 fixed 抽屉（默认滑出屏外），工具栏 ☰ / ▤ 互斥开合，大屏隐藏；E2E 小屏 viewport 断言抽屉开 / 收</li>
+          <li><b>设置面板</b>：新增 petal 启停 UI（<code>loadPetals / setPetals</code>）；修 <code>getConf</code> 输出 snake_case 而 SPA 读 camelCase 导致 <code>escapeHtml(undefined)</code> 报错——手写 camelCase 视图，磁盘 <code>conf.json</code> 保持 snake_case 零迁移</li>
+        </ul>
+        <p class="fix"><b>又一处假阴性</b>：该面板从 v0.2 起从未被 E2E 触发过，所以错误一直潜伏；本轮补设置面板 E2E 断言后才暴露。<b>Tauri mobile（Android / iOS 构建）仍未做</b>，交付的只是 SPA 响应式。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="no">02</span><h2>踩坑与沉淀</h2><span class="aside">7 条可复用教训</span></div>
+    <table>
+      <thead><tr><th style="width:150px">类别</th><th>问题</th><th style="width:340px">破案手段 → 规则</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">生命周期 · 监听</td>
+          <td><p>debouncer 是 <span class="hit">栈上局部变量</span>，函数返回即 drop，watcher 自 v0.1 起从未重索引外部改动</p></td>
+          <td><p>boot 全量索引 + API 内部 reindex 掩盖；端到端断言「外部改名 → 索引路径变化」抓现形</p><p>规则：监听器所有权与工作线程同寿；后台链路必须有外部触发型 E2E</p></td>
+        </tr>
+        <tr>
+          <td class="mono">Windows · 路径</td>
+          <td><p>debouncer-full 输出 <code>//?/E:/...</code> verbatim，与 canonicalize 的 <code>\\?\E:\...</code> 用 <code>strip_prefix</code> 全部失配</p></td>
+          <td><p>逐路径打印 <code>vault.rel</code> 返回值</p><p>规则：<code>normalize_win</code> 去前缀 + 字符串级前缀回退，不依赖 OS path parser</p></td>
+        </tr>
+        <tr>
+          <td class="mono">Tauri · 权限</td>
+          <td><p>SPA 从内核 URL 加载属 <span class="hit">remote origin</span>，默认无法调用自定义命令</p></td>
+          <td><p><code>build.rs</code> 声明 13 个命令生成权限，<code>capabilities/main.json</code> 逐个 <code>allow-*</code> + <code>withGlobalTauri</code></p><p>规则：新增 IPC 命令三处同步（handler / build.rs / capabilities）</p></td>
+        </tr>
+        <tr>
+          <td class="mono">CSP · 剪藏</td>
+          <td><p>Tauri <code>eval</code> 可注入，但页面内 <code>fetch</code> 受 <code>connect-src</code> 限制，严格 CSP 站点注入栏失败</p></td>
+          <td><p>页面上下文与内核上下文分别验证</p><p>规则：注入栏失败时回退面板 <code>clipUrl</code>；登录页才走 <code>clipHtml</code></p></td>
+        </tr>
+        <tr>
+          <td class="mono">canvas · 隐藏页</td>
+          <td><p>hidden dock 页 <code>rect = 0</code>，<code>fitCanvas</code> 的 <code>Math.max(50, …)</code> 把 backing store 钉死在 50px</p></td>
+          <td><p>canvas 尺寸与节点位置同时异常</p><p>规则：<code>IntersectionObserver</code> 首次可见才初始化，再进入唤醒模拟</p></td>
+        </tr>
+        <tr>
+          <td class="mono">API · 命名</td>
+          <td><p><code>getConf</code> 输出 snake_case、SPA 读 camelCase，设置面板 <code>escapeHtml(undefined)</code> 报错（v0.2 潜伏）</p></td>
+          <td><p>补设置面板 E2E 断言后暴露</p><p>规则：手写 camelCase 视图，磁盘格式零迁移；新 UI 必进 E2E</p></td>
+        </tr>
+        <tr>
+          <td class="mono">语义 · 计数</td>
+          <td><p><code>subFileCount</code> 对 folder 全递归计数，与 Obsidian 版「直接子文档数」不一致</p></td>
+          <td><p>跨版本功能对照</p><p>规则：<code>count_md_direct</code> 双 LIKE（<code>dir/%</code> + 排除 <code>dir/%/%</code>），E2E 断言防回归</p></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="no">03</span><h2>里程碑状态与验证口径</h2><span class="aside">TASKS.md 已同步打勾</span></div>
+    <div class="ms-grid">
+      <div class="ms"><span class="id">M6</span><span class="nm">内嵌浏览器（多窗口）</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M7</span><span class="nm">块级能力（v0.2）</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M8</span><span class="nm">虚拟树补全（v0.2）</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M9</span><span class="nm">编辑器体验（v0.2）</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M10</span><span class="nm">工程化与打包（v0.2）</span><span class="st done">DONE</span></div>
+      <div class="ms"><span class="id">M11</span><span class="nm">更远期（图谱/快照/工作区/插件/响应式）</span><span class="st rest">PARTIAL</span></div>
+    </div>
+
+    <div class="subhead">验证口径</div>
+    <table>
+      <thead><tr><th style="width:190px">项目</th><th>结果</th><th style="width:300px">说明</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">cargo test --offline</td><td><p><span class="hit">26 passed / 0 failed</span>（v0.2 时 14）</p></td><td><p>本轮文档交付前实测；新增 12 个单测覆盖 asset / history / petal / snapshot</p></td></tr>
+        <tr><td class="mono">node e2e/check.mjs</td><td><p><span class="hit">41/41</span>（v0.2 时 18）</p></td><td><p>16:22 上一轮交付验证；脚本 44 个 check 调用点，3 处互斥 / 异常分支不进成功路径；截图落 <code>_e2e/</code>（已 gitignore）</p></td></tr>
+        <tr><td class="mono">代码规模</td><td><p>53 files · +4585 / −226</p></td><td><p>新增 12 个源码文件（Tauri 3 / 内核 5 / 前端 4）+ 14 个配置与权限文件</p></td></tr>
+        <tr><td class="mono">本次文档改动</td><td><p>仅 docs/ 与 README.md</p></td><td><p>未触碰内核 / 前端 / 壳代码；不重新生成安装包</p></td></tr>
+      </tbody>
+    </table>
+
+    <div class="subhead">剩余打磨项（按优先级）</div>
+    <ul class="rest-list">
+      <li><b>版本号统一</b>：<code>app/src-tauri/tauri.conf.json</code> 仍是 <code>0.2.0</code>、两个 <code>Cargo.toml</code> 仍是 <code>0.1.0</code>、README 原本标 v0.2（本次文档已更新口径，但<b>包版本与 NSIS 安装包尚未同步为 0.3.x</b>）</li>
+      <li><b>壳内人工点验</b>：多工作区切换、vault picker、开机自启、浏览器多窗口页签——E2E 在浏览器环境触不到 Tauri IPC</li>
+      <li><b>LiveSync（CouchDB）对接</b> &gt; 快照 / petal 加密 &gt; Tauri mobile（Android / iOS SDK） &gt; petal 集市</li>
+      <li><b>已知限制</b>：注入操作栏受站点 CSP 与伺服模式 cookie 约束；快照为明文 MVP；CI 已按用户要求关闭，仅保留本地验证链</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>markvault v0.3</span>
+    <span>2026-11-11</span>
+    <span><a href="https://github.com/alvisliu818/markvault">github.com/alvisliu818/markvault</a></span>
+    <span><a href="v0.2-iteration-report.html">上一份：v0.2 迭代总结</a></span>
+    <span><a href="TASKS.md">任务清单 TASKS.md</a></span>
+  </footer>
+
+</div>
+</body>
+</html>

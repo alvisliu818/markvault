@@ -1,7 +1,8 @@
 # markvault 后续任务
 
-> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 修复 + 关系图谱 + 快照历史 + 多工作区 + 插件系统 + 移动端响应式），内核单测 26/26，E2E 41/41。
+> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 修复 + 关系图谱 + 快照历史 + 多工作区 + 插件系统 + 移动端响应式），内核单测 26/26，E2E 41/41。8 个提交 `43d0cb6 → 591ac31` 全部推送；迭代总结见 [v0.3-iteration-report.html](v0.3-iteration-report.html)，README / API.md / ARCHITECTURE.md 已同步到 v0.3 口径。
 > 本文档承接 README「后续路线」与 docs/ARCHITECTURE.md「已知限制」，按里程碑组织。做完请打勾。
+> ⚠️ **发版前待办**：`tauri.conf.json` 仍 `0.2.0`、两个 `Cargo.toml` 仍 `0.1.0`，包版本与 NSIS 安装包尚未同步为 0.3.0。
 
 ## M6 内嵌浏览器（Tauri 多窗口方案，v0.3 完成）
 
@@ -77,6 +78,37 @@
 - [x] preview 面板中 `/#/doc/` 链接在 Tauri 外部 URL 窗口内要验证 hash 路由兼容性 —— v0.3 E2E 覆盖：预览面板点击 `a[href*="#/doc/"]` → hashchange → resolveLink → 文档页签打开（E2E 的 headless Edge 与 Tauri WebView2 同为 Chromium 内核，hashchange 行为一致）
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
+- [x] **editor-pane hidden 类失效**：`buildPane` 初始 hidden 时活动页签 pane 未被显示（`tabs.ts` 改为无条件 `remove("hidden")`）—— v0.3 第 4 个潜伏 bug
+- [x] **watcher 双深层 bug**：debouncer 栈变量被 drop（v0.1 起外部变更从未索引）+ `vault.rel` verbatim 路径解析全失败 —— 详见上方已知问题条目
 ---
-优先级建议：M6-M11 主体全部交付（~~M7 > M8 > M6 > M10 > 已知问题 > 图谱 > 快照历史 > 多工作区 > 插件系统 > 移动端响应式~~）；剩余打磨项：LiveSync 对接 > petal 加密 > Tauri mobile 构建 > petal 集市。
+
+## v0.3 之后的待办（按优先级）
+
+> M6-M11 主体全部交付（~~M7 > M8 > M6 > M10 > 已知问题 > 图谱 > 快照历史 > 多工作区 > 插件系统 > 移动端响应式~~）。以下为 2026-11-11 收尾时确认的剩余项。
+
+### 功能项（M11 剩余）
+
+| 任务 | 状态 | 说明与依赖 |
+|---|---|---|
+| **LiveSync 对接** | 未做 | 与 Obsidian 生态跨设备实时同步（CouchDB 客户端）。难点：LiveSync 文档格式/分块复刻、E2E 加密兼容、revision 冲突处理。MVP 建议先做只读拉取，再双向。**前置确认：现有 LiveSync 库是否开了 E2E 加密** |
+| **Tauri mobile 构建** | 未做 | Android/iOS 打包需对应 SDK 环境（本机 Windows 只能走 Android 路线）；SPA 响应式已交付，此项纯构建配置层 |
+| **petal / repo 加密** | 未做 | 快照仓库（repo/）与插件存储均为 plaintext MVP；需设计密钥管理（思源是快照口令派生） |
+| **petal 集市** | 未做 | 插件市场/分发（列表、下载、更新），生态成型后再做；当前只支持本地安装 |
+
+### 验证项（代码已交付，需人工点验）
+
+- **壳内交互**：浏览器多页签（打开/剪藏/收藏/注入栏）、多工作区实际切换、vault 选择对话框（rfd）、开机自启开关——E2E 跑在浏览器环境，触不到 Tauri IPC。
+- **preview `/#/doc/` 在 Tauri WebView2 内的 hash 路由**：E2E 已用同类 Chromium 内核覆盖，壳内实机未点。
+
+### 顺手可做（小）
+
+- v0.2 遗留：`watcher 对目录重命名的 vt 挂载树跟随` —— 目录改名后挂载树节点会 missing，需重挂（v0.3 只修了索引精确性）。
+- **release 版重打包**：NSIS 安装包仍是 v0.2.0，功能已大幅演进；统一版本号后出 `markvault_0.3.0`。
+
+### 建议顺序
+
+1. **壳内人工点验一轮 v0.3 功能**（决定是否需要修复轮）
+2. **LiveSync 只读拉取 MVP**（价值最高，已有基础设施；先确认 E2E 加密状态）
+3. **出 0.3.0 安装包**固化成果
+
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。
