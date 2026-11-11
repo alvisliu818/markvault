@@ -102,9 +102,7 @@ cd frontend && node e2e/check.mjs   # 无头 Edge E2E 冒烟（需内核已启�
 
 ## 后续路线
 
-- 内嵌浏览器（Tauri 多窗口方案，每页签一个 WebviewWindow + 内核书签/剪藏数据面）
-- 块级引用（`^block-id` 已在索引中）、反链面板、关系图
-- 发布分享（publish 服务）、多工作区切换
+分里程碑任务清单见 [docs/TASKS.md](docs/TASKS.md)（内嵌浏览器 / 块级引用与反链 / 编辑器体验 / 打包发布等）。
 
 ## 架构文档
 
