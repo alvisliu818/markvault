@@ -10,3 +10,5 @@ app/src-tauri/binaries/
 # LiveSync 实机验证产物(真实笔记明文/加密快照) — 绝不入公开仓库
 testvault/livesync/
 testvault/repo/
+testvault/笔记收藏/E2E临时文档.md
+testvault/笔记本A/E2E临时文档.md

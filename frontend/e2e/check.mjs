@@ -389,15 +389,28 @@ try {
   await page.keyboard.press("Control+End");
   for (let i = 0; i < 4; i++) await page.keyboard.press("Backspace");
 
-  // cleanup: delete the temp doc via kernel API
-  await page.evaluate(async () => {
-    await fetch("/api/filetree/removeDoc", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "/笔记本A/E2E临时文档.md" }),
-    });
+  // cleanup: delete the temp doc (created in the FIRST notebook by 新建文档)
+  // + restore the E2E edit lines added to 首页
+  const cleanupOk = await page.evaluate(async () => {
+    const post = (p, b) =>
+      fetch(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+    let ok = true;
+    for (const p of ["/笔记收藏/E2E临时文档.md", "/笔记本A/E2E临时文档.md"]) {
+      const r = await (await post("/api/filetree/removeDoc", { path: p })).json();
+      if (r.code !== 0) ok = false;
+    }
+    const r = await (
+      await post("/api/file/getFile", { path: "笔记本A/首页.md" })
+    ).text();
+    const cleaned = r
+      .split("\n")
+      .filter((l) => l !== "E2E编辑测试行" && l !== "==E2E高亮测试==")
+      .join("\n")
+      .replace(/\n+$/, "\n");
+    await post("/api/file/putFile", { path: "笔记本A/首页.md", data: cleaned });
+    return ok;
   });
-  check("清理E2E临时文档", true);
+  check("清理E2E临时文档", cleanupOk);
 
   // 12. petal plugin system: sample petal seeded at startup — static hosting,
   // registry, command menu, execution toast (page reloaded so the loader runs)
