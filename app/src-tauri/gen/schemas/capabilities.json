@@ -1,1 +1,1 @@
-{}
+{"main-remote":{"identifier":"main-remote","description":"SPA 主窗口（远程 localhost 源）调用内嵌浏览器命令并接收事件","remote":{"urls":["http://127.0.0.1:*","http://localhost:*"]},"local":true,"windows":["main"],"permissions":["core:default","allow-browser-open","allow-browser-navigate","allow-browser-act","allow-browser-close","allow-browser-focus","allow-browser-list"]}}

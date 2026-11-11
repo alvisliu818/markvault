@@ -118,11 +118,30 @@ export interface Bookmark {
   tags: string[];
 }
 
+export interface HistoryEntry {
+  url: string;
+  title: string;
+  /** epoch millis */
+  created: number;
+}
+
 export const api = {
   // bookmark
   bookmarkList: () => post<Bookmark[]>("/api/bookmark/list"),
   bookmarkAdd: (url: string, title: string) => post<Bookmark[]>("/api/bookmark/add", { url, title }),
   bookmarkRemove: (url: string) => post<Bookmark[]>("/api/bookmark/remove", { url }),
+  // browser history (10min dedup + cap, kernel-side)
+  historyList: () => post<HistoryEntry[]>("/api/history/list"),
+  historyAdd: (url: string, title: string) => post("/api/history/add", { url, title }),
+  historyRemove: (url: string) => post("/api/history/remove", { url }),
+  historyClear: () => post("/api/history/clear"),
+  // asset download (kernel fetch + save to <notebook>/assets/)
+  downloadToLocal: (url: string, notebook: string, filename = "") =>
+    post<{ path: string; filename: string; len: number }>("/api/asset/downloadToLocal", {
+      url,
+      notebook,
+      filename,
+    }),
   // clip
   clipUrl: (url: string, notebook: string, tags: string[] = []) =>
     post<{ path: string; title: string }>("/api/clip/clipUrl", { url, notebook, tags }),

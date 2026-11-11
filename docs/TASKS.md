@@ -1,20 +1,20 @@
 # markvault 后续任务
 
-> 状态基线：v0.2 已交付（v0.1 五里程碑 + M9 编辑器体验 + 部分已知问题修复），内核单测 10/10，E2E 18/18。
+> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器），内核单测 22/22，E2E 24/24。
 > 本文档承接 README「后续路线」与 docs/ARCHITECTURE.md「已知限制」，按里程碑组织。做完请打勾。
 
-## M6 内嵌浏览器（Tauri 多窗口方案）
+## M6 内嵌浏览器（Tauri 多窗口方案，v0.3 完成）
 
 数据面已就绪：书签面板、`/api/bookmark/*`、`/api/clip/clipUrl`、`/api/network/forwardProxy`、`/api/clip/clipHtml`（已实现待接前端）。
 
-- [ ] **浏览器页签模型**：每个页签一个 Tauri `WebviewWindow`（Tauri v2 无嵌套 webview），`app/src-tauri` 新增 `browser.rs` 管理窗口组；SPA 内嵌浏览器面板只做页签列表/新建/激活（通过 Tauri invoke 或自定义协议通信）
-- [ ] **地址栏 + 导航**：前进/后退/刷新/停止/主页；协议补全（http/https/搜索词→搜索引擎），参考 siyuan-plugin-browser `src/browser/Toolbar.ts` 的搜索引擎回退逻辑
-- [ ] **剪藏接入**：浏览器窗口监听剪藏动作 → 两种路径：
-  - 内核侧 `clipUrl`（无 cookie，公开页）
-  - 登录页走 `clipHtml`：在 webview 窗口内取 `document.documentElement.outerHTML` 传给内核（需评估 Tauri 对外部 URL 页面的 JS 注入限制；受限则回退 `clipUrl`）
-- [ ] **书签栏联动**：浏览器窗口收藏 → `/api/bookmark/add`，SPA 书签面板已可展示
-- [ ] **下载管理**：`/api/network/forwardProxy` 已可内核侧抓取；落地"保存图片/文件到 vault assets"端点（`/api/asset/downloadToLocal`），参考 siyuan-plugin-browser `kernel.ts` 的 putFile multipart 契约
-- [ ] 历史记录：`.markvault/storage/browser-history.json` + 历史面板（对齐 bookmarksStore 的 10min 去重/上限策略）
+- [x] **浏览器页签模型**：每个页签一个 Tauri `WebviewWindow`（Tauri v2 无嵌套 webview），`app/src-tauri` 新增 `browser.rs` 管理窗口组；SPA 内嵌浏览器面板只做页签列表/新建/激活（通过 Tauri invoke 或自定义协议通信）——壳侧 6 个 `browser_*` 命令 + 500ms 轮询上报 url/title（`browser:opened`/`browser:url`/`browser:closed` 事件）；主窗口为 remote 源，`capabilities/main.json` 显式授权（`allow-browser-*`）
+- [x] **地址栏 + 导航**：前进/后退（页面 history.back/forward）/刷新/停止（`window.stop`）/主页（about:blank）；协议补全（http/https/搜索词→Bing 搜索回退，移植 siyuan-plugin-browser `utils/url.ts` normalizeUrl）
+- [x] **剪藏接入**：浏览器窗口注入右上角操作栏（500ms 轮询重注入，`window.__mvBar` 防重）：
+  - 面板「剪藏」按钮 → 内核侧 `clipUrl`（无 cookie，公开页）
+  - 注入栏「剪藏」→ 登录页走 `clipHtml`：webview eval 注入脚本在页面上下文取 `document.documentElement.outerHTML` fetch 内核（结论：Tauri eval/ExecuteScript 不受页面 CSP 限制可注入；但页面自身的 fetch 受 connect-src 限制，严格 CSP 站点注入栏报网络错误，回退面板 clipUrl）
+- [x] **书签栏联动**：注入栏「收藏」+ 面板「收藏」按钮 → `/api/bookmark/add`，SPA 书签面板已可展示
+- [x] **下载管理**：`POST /api/asset/downloadToLocal`（内核 fetch → `<笔记本>/assets/<文件名>`，文件名 URL basename 解码/非法字符过滤/`-2` 防覆盖，单测覆盖 sanitize+dedupe），面板「下载到 vault」按钮
+- [x] 历史记录：`.markvault/storage/browser-history.json` + `/api/history/list|add|remove|clear` + 面板历史区（对齐 siyuan historyStore：10min 内同 URL 去重更新、上限 5000 截尾，含单测）
 
 ## M7 块级能力（v0.2 全部完成）
 
@@ -55,7 +55,7 @@
 - [x] SPA 设置面板：conf 项（port/networkServe/accessAuthCode/apiToken/readonly/parentAttr/weightAttr/ignorePatterns）可视化编辑（toolbar「设置」按钮，settings.ts）
 - [x] 启动索引优化：`index_meta` 表存 mtime_ms+size 戳，boot 命中即跳过解析（测试库二次启动索引阶段 62ms/8 docs）；手动「重建索引」走 force 全量；boot 与 rebuild 均接 WS progress（每 20 篇上报，原已知问题一并闭环）
 - [x] cargo warning 清零（id.rs 删除、doc_summary/fm_str_array/fm_number 转 cfg(test)、WsSink/header_value/ParseLink.display 删除）
-- [x] CI（GitHub Actions）：kernel（test+clippy -D warnings）/ frontend（tsc+build）/ e2e（headless Edge）三 job
+- [x] CI（GitHub Actions）：kernel（test+clippy -D warnings）/ frontend（tsc+build）/ e2e（headless Edge）三 job —— v0.3 应用户要求已关闭（删除 `.github/workflows/ci.yml`，commit dfb9b25）
 - [x] 日志：内核 `--log-file` 循环滚动（5MB × 3 个文件，main.rs 内置 Roller）；Tauri 壳默认带 --log-file 拉起内核
 
 ## M11 更远期
@@ -77,5 +77,5 @@
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器。
+优先级建议：~~M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器~~（均已交付）；剩余 M10 设置页对话框 > 已知问题清理 > M11。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

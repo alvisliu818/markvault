@@ -7,6 +7,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+mod browser;
+
 struct KernelHandle(Mutex<Option<Child>>);
 
 /// Resolve the kernel binary: target-triple sidecar next to this exe > plain exe > dev workspace target dir.
@@ -104,9 +106,22 @@ fn main() {
 
     tauri::Builder::default()
         .manage(KernelHandle(Mutex::new(None)))
+        .manage(browser::BrowserState::default())
+        .invoke_handler(tauri::generate_handler![
+            browser::browser_open,
+            browser::browser_navigate,
+            browser::browser_act,
+            browser::browser_close,
+            browser::browser_focus,
+            browser::browser_list,
+        ])
         .setup(move |app| {
             let child = spawn_kernel(port, &workspace).map_err(|e| e.to_string())?;
             *app.state::<KernelHandle>().0.lock().unwrap() = Some(child);
+            *app.state::<browser::BrowserState>()
+                .kernel_origin
+                .lock()
+                .unwrap() = format!("http://127.0.0.1:{}", port);
 
             if !wait_port_open(port, Duration::from_secs(10)) {
                 return Err("kernel did not start in time".into());

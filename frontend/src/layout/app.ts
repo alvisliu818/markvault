@@ -7,6 +7,7 @@ import { SearchPanel } from "../panels/search";
 import { OutlinePanel } from "../panels/outline";
 import { BacklinkPanel } from "../panels/backlinks";
 import { BookmarkPanel } from "../panels/bookmark";
+import { BrowserPanel } from "../panels/browser";
 import { VTreePanel } from "../vtree/panel";
 import { settingsButton } from "../panels/settings";
 import { editorTheme } from "../editor/cm";
@@ -48,12 +49,14 @@ export class App {
     const dockTabs = el("div", "dock-tabs");
     const filePage = el("div", "dock-page");
     const vtPage = el("div", "dock-page hidden");
-    this.dockPages = { file: filePage, vt: vtPage };
+    const browserPage = el("div", "dock-page hidden");
+    this.dockPages = { file: filePage, vt: vtPage, browser: browserPage };
     this.addTabBar(dockTabs, [
       { key: "file", label: "文件" },
       { key: "vt", label: "虚拟树" },
-    ], { file: filePage, vt: vtPage });
-    dock.append(dockTabs, filePage, vtPage);
+      { key: "browser", label: "浏览器" },
+    ], { file: filePage, vt: vtPage, browser: browserPage });
+    dock.append(dockTabs, filePage, vtPage, browserPage);
 
     // editor area (breadcrumb above tabs)
     this.breadcrumbEl = el("div", "breadcrumb hidden");
@@ -112,6 +115,7 @@ export class App {
     });
     new SearchPanel(searchPage, (p, t) => void this.tabs.open(p, t));
     new BookmarkPanel(bookmarkPage);
+    new BrowserPanel(browserPage);
 
     // dock resize
     let dragging = false;
@@ -211,6 +215,7 @@ export class App {
       const tabs = [
         { key: "file", label: "文件" },
         { key: "vt", label: "虚拟树" },
+        { key: "browser", label: "浏览器" },
       ];
       this.switchTabIn(dockTabBar, tabs, this.dockPages, key);
     }

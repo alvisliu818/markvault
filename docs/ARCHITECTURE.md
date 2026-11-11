@@ -35,7 +35,11 @@ frontend/               Vite + TS SPA（无框架）
 └── src/vtree/panel.ts  虚拟树面板（关系树/挂载树/拖拽排序/定位/聚焦/折叠持久化）
 
 app/src-tauri/          Tauri v2 壳
-└── src/main.rs         解析内核二进制（sidecar/dev target）→ 子进程拉起 → 等端口 → 外部 URL 窗口 → 退出杀子进程
+├── src/main.rs         解析内核二进制（sidecar/dev target）→ 子进程拉起 → 等端口 → 外部 URL 窗口 → 退出杀子进程
+└── src/browser.rs      内嵌浏览器多窗口（M6）：每页签一个 WebviewWindow（label browser-<tabId>），
+                        6 个 browser_* IPC 命令（open/navigate/act/close/focus/list）+ 500ms 轮询
+                        （url/title 变化 → 事件广播到主窗口 + 注入收藏/剪藏操作栏）；capabilities/main.json
+                        为 remote 主窗口授权（allow-browser-*）
 ```
 
 ## 数据流
@@ -44,6 +48,7 @@ app/src-tauri/          Tauri v2 壳
 2. **外部改**：notify-debouncer-full 监听 vault → 过滤 `.` 目录与 ignore 模式 → 对 .md reindex_one / unindex → 广播。`.markvault/` 完全跳过避免自触发。
 3. **关系树**：`/api/vt/getRelationTree` 时从索引读全部 docs（frontmatter `parent`/`weight`）→ 解析 wikilink（路径精确 > 标题 > 基名）→ 构树（ancestors 环检测、分支复制）→ 兄弟消歧 → 排序（customOrder > weight desc > name asc）→ 返回树 JSON。结构不持久化，只持久化意图（roots/拖拽序/设置，`vt.json`）。
 4. **剪藏**：`/api/clip/clipUrl` → reqwest 拉取 → dom_smoothie(Readability) → htmd → 拼 frontmatter（source/created/tags）→ `create_doc_internal` 复用建文档路径（写入+索引+广播）。
+5. **内嵌浏览器（M6）**：SPA 浏览器面板 = 控制器（页签列表/地址栏/前进后退/剪藏/收藏/下载），壳 `browser.rs` = 窗口组管理。页签窗口 URL/title 由壳轮询并以 `browser:*` 事件推回主窗口；SPA 收到 url 变化即 `POST /api/history/add`（内核 10min 去重+5000 上限）。页面内操作（收藏/剪 HTML）由壳 eval 注入的操作栏完成——页面上下文 fetch 内核（本地 Host 信任放行 + CORS very_permissive），登录页 DOM 内核拿不到，这正是 `clipHtml` 存在的理由。
 
 ## 设计决策与取舍
 
@@ -56,7 +61,9 @@ app/src-tauri/          Tauri v2 壳
 
 ## 已知限制（MVP）
 
-- 内核侧剪藏无法携带浏览器 cookie（登录页不可剪）——`clipHtml` 端点为嵌入浏览器剪藏预留。
-- 索引启动全量重建（大库可优化为 mtime 校验）。
-- 移动端布局、多窗口、同步/历史版本未实现。
+- 内核侧剪藏无法携带浏览器 cookie（登录页不可剪）——嵌入浏览器注入栏走 `clipHtml` 在页面上下文取 DOM 解决；但严格 CSP 站点（connect-src 收紧）会拦截注入栏的 fetch，回退面板「剪藏」（clipUrl）。
+- networkServe 伺服模式下，浏览器窗口内注入栏 fetch 内核不带访问码 cookie（外部页面无登录态），剪藏/收藏会 401；本地模式不受影响。
+- 注入操作栏的样式受页面 CSP style-src 影响（个别站点可能裸样式），功能不受影响。
+- 索引启动全量重建已优化为 mtime 增量（index_meta），rebuild 强制全量。
+- 移动端布局、同步/历史版本未实现。
 - `.sy` 导入/导出未实现（思源用户需从 md 或 std markdown 迁移）。

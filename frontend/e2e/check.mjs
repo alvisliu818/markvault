@@ -147,6 +147,61 @@ try {
   });
   check("导出笔记本 zip", zipExists);
 
+  // 10e. browser panel: kernel-side seed history, then panel shows it;
+  // outside the Tauri shell the tab area degrades to a hint
+  await page.evaluate(async () => {
+    await fetch("/api/history/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com/e2e-article", title: "E2E历史条目" }),
+    });
+  });
+  await page.click('.mv-dock .dock-tab:has-text("浏览器")');
+  await page.waitForTimeout(400);
+  const brText = await page.textContent(".mv-dock .dock-page:not(.hidden)");
+  check("浏览器面板-壳外降级提示", brText.includes("桌面壳"), brText.slice(0, 60));
+  await page.click('.mv-dock .dock-page:not(.hidden) button:has-text("刷新")');
+  await page.waitForTimeout(400);
+  const brText2 = await page.textContent(".mv-dock .dock-page:not(.hidden)");
+  check("浏览器面板-历史记录列表", brText2.includes("E2E历史条目"), brText2.slice(0, 80));
+  const addrVisible = await page.locator(".browser-addr").isVisible();
+  check("浏览器面板-地址栏", addrVisible);
+  await page.screenshot({ path: shots + "t10_browser.png" });
+
+  // 10f. downloadToLocal: kernel fetches the vault-served file and lands it in assets/
+  const dl = await page.evaluate(async (base) => {
+    const r = await fetch("/api/asset/downloadToLocal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: base + "/vault/" + encodeURIComponent("笔记本A/首页.md"),
+        notebook: "笔记本A",
+        filename: "e2e-download.md",
+      }),
+    });
+    return await r.json();
+  }, base);
+  check(
+    "downloadToLocal 落地 assets",
+    dl.code === 0 && String(dl.data?.path || "").includes("assets/e2e-download.md"),
+    JSON.stringify(dl).slice(0, 80)
+  );
+
+  // cleanup: downloaded asset + seeded history
+  await page.evaluate(async () => {
+    await fetch("/api/file/removeFile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "笔记本A/assets/e2e-download.md" }),
+    });
+    await fetch("/api/history/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  });
+  check("清理下载文件与历史", true);
+
   // 11. new doc via toolbar flow (API-backed UI) — switch back to 文件 tab first
   await page.click('.mv-dock .dock-tab:has-text("文件")');
   await page.waitForTimeout(300);
