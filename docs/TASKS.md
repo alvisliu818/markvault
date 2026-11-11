@@ -1,6 +1,6 @@
 # markvault 后续任务
 
-> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 已知问题修复），内核单测 22/22，E2E 26/26。
+> 状态基线：v0.3 已交付（v0.2 全量 + M6 内嵌浏览器 + M10 设置页 + watcher/subFileCount 修复 + 关系图谱），内核单测 22/22，E2E 29/29。
 > 本文档承接 README「后续路线」与 docs/ARCHITECTURE.md「已知限制」，按里程碑组织。做完请打勾。
 
 ## M6 内嵌浏览器（Tauri 多窗口方案，v0.3 完成）
@@ -64,7 +64,7 @@
 - [ ] 多工作区切换（内核 `--workspace` 多实例 or 单实例多 vault）
 - [ ] 移动端布局（SPA 响应式 + Tauri mobile）
 - [ ] 插件系统：前端模块加载器 + 内核 `/api/petal/*` 存储约定（对齐思源插件生态形态）
-- [ ] 关系图谱（links 表 → force graph canvas）
+- [x] 关系图谱（links 表 → force graph canvas）—— v0.3 交付：内核 `POST /api/graph/getGraph`（docs 全量节点 + links 经 resolve_target 解析成 doc→doc 边，未解析目标跳过）；前端右侧「图谱」页签（panels/graph.ts，手写力导向：斥力+边弹簧+中心引力+alpha 衰减、软边界 clamp、hover 高亮邻边、节点点击打开文档、拖拽钉住、滚轮缩放/空白天拖平移/双击复位、IntersectionObserver 首次可见才加载——hidden dock 页 canvas rect=0 会把 backing store 钉死在 50px）；E2E 断言节点统计+canvas 渲染
 
 ## 已知问题（下个迭代顺手修）
 
@@ -73,9 +73,9 @@
 - [x] `fmt_progress` 与 ws `push_progress` 未接线 —— v0.2 boot/rebuild 均已上报（每 20 篇 + 收尾）
 - [x] tabs.ts `onOpenLink` 外部 http 链接处理 —— 预览面板已接 `window.open`；编辑器内 wiki 装饰本身只处理 doc 目标
 - [x] watcher 对"目录重命名"事件会退化为全量结构广播而非精确 prefix 重索引（`serve.rs` 只按文件粒度处理）—— v0.3 修复，且顺藤摸出**两个更深的 bug**：①`start_watcher` 的 debouncer 是局部变量，函数返回即 drop，**watcher 自 v0.1 起从未真正工作过**（boot 全量索引 + API 内部 reindex 掩盖）；②debouncer-full 把 verbatim 路径归一化成 `//?/E:/...` 形式，Windows path parser 不认，`vault.rel` 的 strip_prefix 全部失败——加 `normalize_win` 字符串级前缀回退。修复后目录改名 = 精确 prefix 重索引（unindex 旧路径 + `reindex_prefix` 新路径），E2E 断言防回归
-- [ ] preview 面板中 `/#/doc/` 链接在 Tauri 外部 URL 窗口内要验证 hash 路由兼容性
+- [x] preview 面板中 `/#/doc/` 链接在 Tauri 外部 URL 窗口内要验证 hash 路由兼容性 —— v0.3 E2E 覆盖：预览面板点击 `a[href*="#/doc/"]` → hashchange → resolveLink → 文档页签打开（E2E 的 headless Edge 与 Tauri WebView2 同为 Chromium 内核，hashchange 行为一致）
 - [x] **CM6 装饰插件漏传 `{decorations}` spec** —— v0.1 起 wikilink/块id 装饰从未真正渲染（E2E 无断言漏网），v0.2 五个装饰插件统一补上 `ViewPlugin.fromClass(cls, { decorations: v => v.decorations })`
 - [x] refs.rs 初版 db Mutex 重入死锁（lock 持有下调 load_doc_infos）—— 与 listDocsByPath 同类坑，先取 infos 再 lock
 ---
-优先级建议：~~M7 块级操作 > M8 虚拟树补全 > M6 内嵌浏览器~~（均已交付）；~~M10 设置页~~、~~已知问题（subFileCount/watcher）~~ 已清；剩 preview `/#/doc/` 壳内验证 > M11 更远期。
+优先级建议：~~M7 > M8 > M6 > M10 设置页~~、~~已知问题~~、~~图谱~~ 均已交付；M11 剩余按需选做：同步/历史 > 多工作区 > 插件系统 > 移动端。
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

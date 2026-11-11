@@ -2,6 +2,7 @@ pub mod asset;
 pub mod block;
 pub mod bookmark;
 pub mod clip;
+pub mod graph;
 pub mod history;
 pub mod file;
 pub mod filetree;
@@ -105,6 +106,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .nest("/api/asset", asset::routes())
         .nest("/api/network", network::routes())
         .nest("/api/ref", refs::routes())
+        .nest("/api/graph", graph::routes())
         .nest("/api/export", export::routes())
         .nest("/api/index", index_routes())
 }

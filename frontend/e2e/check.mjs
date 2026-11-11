@@ -73,6 +73,22 @@ try {
   check("预览==高亮==渲染", markCount > 0, `mark=${markCount}`);
   await page.screenshot({ path: shots + "t4_preview.png" });
 
+  // 5b. preview wikilink hash navigation (/#/doc/ links route via hashchange —
+  // same Chromium webview as the Tauri shell, so this covers the known-issue)
+  const hashLink = page.locator('.preview-pane a[href*="#/doc/"]').first();
+  const hashCnt = await hashLink.count();
+  if (hashCnt > 0) {
+    await hashLink.click();
+    await page.waitForTimeout(700);
+    const edTabs = await page.textContent(".editor-tabs");
+    check("预览hash链接导航(/#/doc/)", edTabs.includes("计划") || edTabs.includes("随笔"), edTabs.slice(0, 60));
+    // return to 首页 so the following panel assertions keep their baseline
+    await page.click('.editor-tabs .ed-tab:has-text("首页")');
+    await page.waitForTimeout(400);
+  } else {
+    check("预览hash链接导航(/#/doc/)", false, "no /#/doc/ links rendered in preview");
+  }
+
   // 6. outline
   const outline = await page.textContent(".mv-right .dock-page:not(.hidden)");
   check("大纲面板", outline.includes("首页") || outline.includes("(无标题)"), outline.slice(0, 40));
@@ -128,6 +144,16 @@ try {
   await page.waitForTimeout(400);
   const bmText = await page.textContent(".mv-right .dock-page:not(.hidden)");
   check("书签面板", bmText.includes("example.com"), bmText.slice(0, 50));
+
+  // 10b-2. graph panel: canvas rendered + nodes counted from /api/graph/getGraph
+  await page.click('.mv-right .dock-tab:has-text("图谱")');
+  await page.waitForTimeout(1200);
+  const gStat = await page.textContent('.mv-right .dock-page:not(.hidden) .graph-stat');
+  const nodeN = parseInt((gStat || "").match(/^(\d+) 节点/)?.[1] || "0", 10);
+  check("图谱面板-节点统计", nodeN > 0, gStat || "(empty)");
+  const gCanvas = await page.locator('.mv-right .dock-page:not(.hidden) canvas.graph-canvas').isVisible();
+  check("图谱面板-canvas渲染", gCanvas);
+  await page.screenshot({ path: shots + "t11_graph.png" });
 
   // 10c. clip button exists (kernel clip verified separately via API test)
   const clipBtnVisible = await page.locator('.mv-toolbar button:has-text("剪藏")').isVisible();

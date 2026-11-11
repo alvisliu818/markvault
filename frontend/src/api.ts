@@ -188,6 +188,10 @@ export const api = {
   fullTextSearch: (query: string) => post<SearchRow[]>("/api/search/fullTextSearchBlock", { query }),
   // refs
   getBacklinks: (path: string) => post<BacklinksData>("/api/ref/getBacklinks", { path }),
+  // graph (force-directed canvas)
+  getGraph: () => post<{ nodes: { id: string; title: string; notebook: string }[]; links: { source: string; target: string }[] }>(
+    "/api/graph/getGraph"
+  ),
   // format
   renderMd: (md: string, path: string) =>
     post<{ content: string }>("/api/format/renderMd", { md, path, rewriteLinks: true }),

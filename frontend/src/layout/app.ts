@@ -8,6 +8,7 @@ import { OutlinePanel } from "../panels/outline";
 import { BacklinkPanel } from "../panels/backlinks";
 import { BookmarkPanel } from "../panels/bookmark";
 import { BrowserPanel } from "../panels/browser";
+import { GraphPanel } from "../panels/graph";
 import { VTreePanel } from "../vtree/panel";
 import { settingsButton } from "../panels/settings";
 import { editorTheme } from "../editor/cm";
@@ -71,13 +72,15 @@ export class App {
     const backlinkPage = el("div", "dock-page hidden");
     const searchPage = el("div", "dock-page hidden");
     const bookmarkPage = el("div", "dock-page hidden");
+    const graphPage = el("div", "dock-page hidden");
     this.addTabBar(rightTabs, [
       { key: "outline", label: "大纲" },
       { key: "backlink", label: "反链" },
       { key: "search", label: "搜索" },
       { key: "bookmark", label: "书签" },
-    ], { outline: outlinePage, backlink: backlinkPage, search: searchPage, bookmark: bookmarkPage });
-    right.append(rightTabs, outlinePage, backlinkPage, searchPage, bookmarkPage);
+      { key: "graph", label: "图谱" },
+    ], { outline: outlinePage, backlink: backlinkPage, search: searchPage, bookmark: bookmarkPage, graph: graphPage });
+    right.append(rightTabs, outlinePage, backlinkPage, searchPage, bookmarkPage, graphPage);
 
     main.append(dock, dockResizer, center, right);
     root.append(toolbar, main);
@@ -115,6 +118,7 @@ export class App {
     });
     new SearchPanel(searchPage, (p, t) => void this.tabs.open(p, t));
     new BookmarkPanel(bookmarkPage);
+    new GraphPanel(graphPage, (p, t) => void this.tabs.open(p, t));
     new BrowserPanel(browserPage);
 
     // dock resize
