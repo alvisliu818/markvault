@@ -229,6 +229,12 @@ fn start_watcher(state: Arc<AppState>) {
         let _debouncer = debouncer;
         while let Some(paths) = path_rx.blocking_recv() {
             let st = state.clone();
+            // Bulk apply (LiveSync import) writes thousands of files and runs
+            // its own force rebuild right after — per-file reindex here would
+            // duplicate all that work (pre-v0.3.0: 300s timeouts + WS spam).
+            if st.bulk_apply.load(std::sync::atomic::Ordering::SeqCst) {
+                continue;
+            }
             let mut changed_md = false;
             let mut structural = false;
             for p in &paths {

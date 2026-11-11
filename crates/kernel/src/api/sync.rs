@@ -1080,10 +1080,28 @@ fn apply_bump(plan: &SharedPlan, f: impl FnOnce(&mut ApplyState)) {
     }
 }
 
+/// Stands the watcher down while bulk apply writes files; clears the flag on
+/// drop (including panics) so the watcher can never stay silenced.
+struct BulkApplyGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for BulkApplyGuard<'_> {
+    fn drop(&mut self) {
+        self.0
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Synchronous apply body (runs on a blocking thread). `import` writes notes
 /// add-only into the vault and rebuilds the index once; `export` writes bodies
 /// into an isolated directory. Both push progress and finish the plan.
 fn run_apply_job(st: &AppState, plan: &SharedPlan, target: &str, notebook: &str, include_partial: bool) {
+    let _bulk_guard = if target == "import" {
+        st.bulk_apply
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Some(BulkApplyGuard(&st.bulk_apply))
+    } else {
+        None
+    };
     let result = (|| -> Result<(), String> {
         let (passphrase, pbk, docs, chunks, shards) = {
             let p = plan.lock().unwrap();

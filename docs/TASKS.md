@@ -129,7 +129,7 @@ S1-S7 主体已交付并推送（至 `891ca68`）。暂停点的收尾清单执�
 已量化/待查：
 
 - applyPull 全量导入耗时长：6,851 篇逐篇 reindex 超 HTTP 客户端 300s 超时（后台化后不再受限，结果正确）；批量 `rebuild_all_ext` 的实际收益待量化。
-- docCount 口径差异：`lsNotebooks` 显示 1082 vs 磁盘 6,850 个 .md（可能是 reindex 异步未追上或统计口径），FTS 已可搜到导入内容。
+- [x] docCount 口径差异（2026-11-12 定案）：观察值是**写入阶段中途快照**（docs 表只在末尾批量重建时更新），且当时 watcher 对 6,850 个写入逐个 reindex_one + WS 广播（300s 超时真因）→ 已加 `AppState.bulk_apply` 闸：apply 写入期间 watcher 停机（Drop 兜底防 panic 卡死），末尾单次 force 重建一次性填满 docs。
 - 全量「拉取+导入」端到端在修复后完整重跑一次。
 - 更远：petal 密钥管理、Tauri mobile 构建。
 

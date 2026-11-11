@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "markvault-kernel"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "base64 0.22.1",

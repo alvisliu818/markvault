@@ -13,6 +13,9 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     /// index rebuild in progress flag
     pub rebuilding: AtomicBool,
+    /// bulk apply (LiveSync import) in progress — the watcher stands down
+    /// because a full rebuild runs right after the writes finish
+    pub bulk_apply: AtomicBool,
     /// shutdown signal for graceful exit API
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
     /// HMAC session secret derived from accessAuthCode (stable across restarts)
@@ -34,6 +37,7 @@ impl AppState {
             conf: RwLock::new(conf),
             db: Mutex::new(db),
             rebuilding: AtomicBool::new(false),
+            bulk_apply: AtomicBool::new(false),
             shutdown_tx,
             session_key,
         })
