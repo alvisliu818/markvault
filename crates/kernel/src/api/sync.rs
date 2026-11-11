@@ -373,6 +373,7 @@ struct Plan {
     docs_partial: usize,
     docs_uncovered: usize,
     pbkdf2_salt: Option<Vec<u8>>,
+    apply: Option<ApplyState>,
     created: u64,
 }
 
@@ -398,12 +399,35 @@ impl Plan {
             docs_partial: 0,
             docs_uncovered: 0,
             pbkdf2_salt: None,
+            apply: None,
             created: Utc::now().timestamp() as u64,
         }
     }
 }
 
 type SharedPlan = Arc<Mutex<Plan>>;
+
+/// Background apply (export/import) state — surfaced via getPlan.
+#[derive(Clone, serde::Serialize)]
+struct ApplyState {
+    target: String,
+    notebook: String,
+    include_partial: bool,
+    phase: String, // writing|reindexing|done|error
+    progress: usize,
+    total: usize,
+    imported: usize,
+    partial: usize,
+    skipped_existing: usize,
+    skipped_partial: usize,
+    skipped_empty: usize,
+    skipped_unsafe: usize,
+    errors: usize,
+    body_bytes_total: usize,
+    export_dir: Option<String>,
+    error: Option<String>,
+    done: bool,
+}
 
 fn plans() -> &'static Mutex<HashMap<String, SharedPlan>> {
     static P: OnceLock<Mutex<HashMap<String, SharedPlan>>> = OnceLock::new();
@@ -612,6 +636,12 @@ async fn get_plan(State(_st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let Some(plan) = plan else {
         return ApiResp::err(-1, "unknown or expired planId");
     };
+    ApiResp::ok(plan_summary(&req.plan_id, &plan))
+}
+
+/// getPlan response assembly (kept public-visible fields in one place;
+/// `apply` must be present or import-progress polling reads None).
+fn plan_summary(plan_id: &str, plan: &SharedPlan) -> Value {
     let inner = plan.lock().unwrap();
     let preview: Vec<Value> = inner
         .docs
@@ -630,8 +660,8 @@ async fn get_plan(State(_st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
             })
         })
         .collect();
-    ApiResp::ok(json!({
-        "planId": req.plan_id,
+    json!({
+        "planId": plan_id,
         "mode": inner.mode,
         "phase": inner.phase,
         "progress": inner.progress,
@@ -648,7 +678,8 @@ async fn get_plan(State(_st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         "docsUncovered": inner.docs_uncovered,
         "chunks": inner.chunks.len(),
         "docsPreview": preview,
-    }))
+        "apply": inner.apply.clone(),
+    })
 }
 
 async fn run_pull_job(st: Arc<AppState>, cfg: SyncConfig, plan: SharedPlan, limit: usize, full: bool) {
@@ -920,8 +951,8 @@ fn safe_relative_path(raw: &str) -> Option<PathBuf> {
     }
 }
 
-/// Apply a finished plan. `export` writes the reconstructed `.md` bodies into an
-/// isolated directory under `.markvault/export/` — never into the vault.
+/// Apply a finished plan. Long runs (full import = thousands of notes) run as a
+/// background job; progress goes to `getPlan` (apply.*) and WS `sync-progress`.
 async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let req: ApplyReq = parse(&bytes);
     let plan = plans()
@@ -931,256 +962,312 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let Some(plan) = plan else {
         return ApiResp::err(-1, "unknown or expired planId");
     };
-    let (token, mode, phase, error, shards, docs, chunks, tmp_dir, pbk) = {
+    let target = if req.target.is_empty() {
+        "export".to_string()
+    } else {
+        req.target.clone()
+    };
+    if target != "export" && target != "import" {
+        return ApiResp::err(-1, "target must be export or import");
+    }
+    let notebook = req.notebook.trim().trim_matches('/').to_string();
+    if target == "import" && notebook.is_empty() {
+        return ApiResp::err(-1, "notebook required for target=import");
+    }
+    let (token, ready, ready_err, already) = {
         let p = plan.lock().unwrap();
+        let already = p
+            .apply
+            .as_ref()
+            .map(|a| serde_json::to_value(a).unwrap_or_default());
         (
             p.token.clone(),
-            p.mode.clone(),
-            p.phase.clone(),
+            done_and_ok(&p.phase, &p.error),
             p.error.clone(),
-            p.shards.clone(),
-            p.docs.clone(),
-            p.chunks.clone(),
-            p.tmp_dir.clone(),
-            p.pbkdf2_salt.clone().unwrap_or_default(),
+            already,
         )
     };
     if req.token != token {
         return ApiResp::err(-1, "token mismatch");
     }
-    if !done_and_ok(&phase, &error) {
-        return ApiResp::err(-1, &format!("plan not ready: phase={} error={:?}", phase, error));
+    if !ready {
+        return ApiResp::err(-1, &format!("plan not ready: {}", ready_err.unwrap_or_default()));
     }
-    let target = if req.target.is_empty() {
-        "export"
-    } else {
-        &req.target
+    if let Some(a) = already {
+        if a.get("done") != Some(&json!(true)) {
+            // a previous apply is still running — report progress instead
+            return ApiResp::ok(json!({
+                "planId": req.plan_id,
+                "phase": a.get("phase").cloned().unwrap_or(json!("writing")),
+                "progress": a.get("progress").cloned().unwrap_or(json!(0)),
+                "total": a.get("total").cloned().unwrap_or(json!(0)),
+            }));
+        }
+        return ApiResp::err(-1, "plan already applied; planPull again for a fresh plan");
+    }
+    {
+        let mut p = plan.lock().unwrap();
+        p.apply = Some(ApplyState {
+            target: target.clone(),
+            notebook: notebook.clone(),
+            include_partial: req.include_partial,
+            phase: "writing".into(),
+            progress: 0,
+            total: p.docs.len(),
+            imported: 0,
+            partial: 0,
+            skipped_existing: 0,
+            skipped_partial: 0,
+            skipped_empty: 0,
+            skipped_unsafe: 0,
+            errors: 0,
+            body_bytes_total: 0,
+            export_dir: None,
+            error: None,
+            done: false,
+        });
+    }
+    let job = {
+        let st = st.clone();
+        let plan = plan.clone();
+        let target = target.clone();
+        let notebook = notebook.clone();
+        tokio::task::spawn_blocking(move || {
+            run_apply_job(&st, &plan, &target, &notebook, req.include_partial);
+        })
     };
-    if target == "import" {
-        return import_into_vault(&st, &req, &docs, &chunks, &pbk, &shards);
+    // surface panics as plan errors
+    let watcher = plan.clone();
+    tokio::spawn(async move {
+        if job.await.is_err() {
+            if let Ok(mut p) = watcher.lock() {
+                if let Some(a) = p.apply.as_mut() {
+                    a.phase = "error".into();
+                    a.error = Some("apply job panicked".into());
+                    a.done = true;
+                }
+            }
+        }
+    });
+    ApiResp::ok(json!({
+        "planId": req.plan_id,
+        "phase": "writing",
+        "total": docs_len_of(&plan),
+        "note": "background job started; poll getPlan (apply.*) until done",
+    }))
+}
+
+fn docs_len_of(plan: &SharedPlan) -> usize {
+    plan.lock().unwrap().docs.len()
+}
+
+fn apply_bump(plan: &SharedPlan, f: impl FnOnce(&mut ApplyState)) {
+    let payload = {
+        let mut p = plan.lock().unwrap();
+        if let Some(a) = p.apply.as_mut() {
+            f(a);
+        }
+        p.apply
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok())
+            .map(|mut v| {
+                v["planId"] = json!(p.plan_id);
+                v
+            })
+    };
+    if let Some(v) = payload {
+        crate::ws::broadcast("sync-progress", v);
     }
-    if target != "export" {
-        return ApiResp::err(-1, "target must be export or import");
-    }
-    let passphrase = cfg_passphrase();
-    let dir = st
-        .workspace
-        .join(".markvault/export")
-        .join(format!("livesync-{}", Utc::now().timestamp_millis()));
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        return ApiResp::err(-1, &format!("mkdir export: {}", e));
-    }
-    let mut applied = 0usize;
-    let mut partial = 0usize;
-    let mut skipped = 0usize;
-    let mut errors = 0usize;
-    let mut body_bytes_total = 0usize;
-    for d in &docs {
-        let children = d
-            .get("children")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let mut pieces: Vec<String> = Vec::new();
-        let mut miss = 0usize;
-        for c in &children {
-            let cid = c.as_str().unwrap_or("");
-            match chunks.get(cid) {
-                Some(file) => match std::fs::read_to_string(file) {
-                    Ok(body) => match decrypt_field(&body, &passphrase, &pbk) {
-                        Ok(piece) => pieces.push(piece),
+}
+
+/// Synchronous apply body (runs on a blocking thread). `import` writes notes
+/// add-only into the vault and rebuilds the index once; `export` writes bodies
+/// into an isolated directory. Both push progress and finish the plan.
+fn run_apply_job(st: &AppState, plan: &SharedPlan, target: &str, notebook: &str, include_partial: bool) {
+    let result = (|| -> Result<(), String> {
+        let (passphrase, pbk, docs, chunks, shards) = {
+            let p = plan.lock().unwrap();
+            (
+                cfg_passphrase(),
+                p.pbkdf2_salt.clone().unwrap_or_default(),
+                p.docs.clone(),
+                p.chunks.clone(),
+                p.shards.clone(),
+            )
+        };
+        let export_dir = st
+            .workspace
+            .join(".markvault/export")
+            .join(format!("livesync-{}", Utc::now().timestamp_millis()));
+        if target == "export" {
+            std::fs::create_dir_all(&export_dir).map_err(|e| format!("mkdir export: {}", e))?;
+        }
+        let mut imported_paths: Vec<String> = Vec::new();
+        for (idx, d) in docs.iter().enumerate() {
+            let children = d
+                .get("children")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut pieces: Vec<String> = Vec::new();
+            let mut miss = 0usize;
+            for c in &children {
+                let cid = c.as_str().unwrap_or("");
+                match chunks.get(cid) {
+                    Some(file) => match std::fs::read_to_string(file) {
+                        Ok(body) => match decrypt_field(&body, &passphrase, &pbk) {
+                            Ok(piece) => pieces.push(piece),
+                            Err(_) => miss += 1,
+                        },
                         Err(_) => miss += 1,
                     },
-                    Err(_) => miss += 1,
-                },
-                None => miss += 1,
+                    None => miss += 1,
+                }
             }
-        }
-        if pieces.is_empty() {
-            skipped += 1;
-            continue;
-        }
-        if miss > 0 {
-            partial += 1;
-        }
-        let raw_path = d.get("path").and_then(Value::as_str).unwrap_or("");
-        let Some(rel) = safe_relative_path(raw_path) else {
-            skipped += 1;
-            continue;
-        };
-        let file = dir.join(&rel);
-        if let Some(parent) = file.parent() {
-            if std::fs::create_dir_all(parent).is_err() {
-                errors += 1;
+            apply_bump(plan, |a| {
+                a.phase = "writing".into();
+                a.progress = idx + 1;
+            });
+            if pieces.is_empty() {
+                apply_bump(plan, |a| a.skipped_empty += 1);
                 continue;
             }
-        }
-        let body = pieces.join("");
-        match std::fs::write(&file, &body) {
-            Ok(_) => {
-                applied += 1;
-                body_bytes_total += body.len();
+            if miss > 0 && !include_partial {
+                apply_bump(plan, |a| a.skipped_partial += 1);
+                continue;
             }
-            Err(_) => errors += 1,
+            let raw_path = d.get("path").and_then(Value::as_str).unwrap_or("");
+            let Some(rel) = safe_relative_path(raw_path) else {
+                apply_bump(plan, |a| a.skipped_unsafe += 1);
+                continue;
+            };
+            let body = pieces.join("");
+            match target {
+                "import" => {
+                    let rel_full = format!(
+                        "{}/{}",
+                        notebook.trim_matches('/'),
+                        rel.to_string_lossy().replace('\\', "/")
+                    );
+                    // add-only: never overwrite an existing note
+                    if st.vault.read_file(&rel_full).is_some() {
+                        apply_bump(plan, |a| a.skipped_existing += 1);
+                        continue;
+                    }
+                    match st.vault.write_file(&rel_full, body.as_bytes()) {
+                        Ok(_) => {
+                            imported_paths.push(rel_full.clone());
+                            apply_bump(plan, |a| {
+                                a.imported += 1;
+                                a.body_bytes_total += body.len();
+                                if miss > 0 {
+                                    a.partial += 1;
+                                }
+                            });
+                        }
+                        Err(_) => apply_bump(plan, |a| a.errors += 1),
+                    }
+                }
+                _ => {
+                    let file = export_dir.join(&rel);
+                    if let Some(parent) = file.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    match std::fs::write(&file, &body) {
+                        Ok(_) => apply_bump(plan, |a| {
+                            a.imported += 1;
+                            a.body_bytes_total += body.len();
+                            a.export_dir = Some(export_dir.to_string_lossy().to_string());
+                        }),
+                        Err(_) => apply_bump(plan, |a| a.errors += 1),
+                    }
+                }
+            }
+        }
+        // index: import relies on a single full rebuild (one pass over the
+        // vault, far faster than thousands of per-doc transactions)
+        if target == "import" && !imported_paths.is_empty() {
+            apply_bump(plan, |a| {
+                a.phase = "reindexing".into();
+                a.progress = imported_paths.len();
+            });
+            {
+                let db = st.db.lock().unwrap();
+                let _ = crate::index::builder::rebuild_all_ext(
+                    &db,
+                    &st.vault,
+                    &|rel| st.is_ignored(rel),
+                    true,
+                    &|done, _total| {
+                        apply_bump(plan, |a| {
+                            a.phase = "reindexing".into();
+                            a.progress = done;
+                        });
+                    },
+                );
+            }
+            super::ops::notify_tree();
+        }
+        if target == "export" {
+            let stats = plan.lock().unwrap().apply.clone();
+            let manifest = json!({
+                "source": "livesync-s3",
+                "direction": "download",
+                "target": target,
+                "shards": shards,
+                "apply": stats,
+                "note": "exported into an isolated directory; the vault itself is never touched",
+            });
+            let _ = std::fs::write(
+                export_dir.join("manifest.json"),
+                serde_json::to_string_pretty(&manifest).unwrap_or_default(),
+            );
+        }
+        if let Some(latest) = shards.iter().max() {
+            let p = sync_point_path(st);
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&p, latest);
+        }
+        Ok(())
+    })();
+    let (phase, err) = match result {
+        Ok(()) => ("done", None),
+        Err(e) => ("error", Some(e)),
+    };
+    let summary = {
+        let mut p = plan.lock().unwrap();
+        if let Some(a) = p.apply.as_mut() {
+            a.phase = phase.to_string();
+            a.error = err.clone();
+            a.done = true;
+        }
+        p.apply
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok())
+            .unwrap_or(json!({}))
+    };
+    if target == "import" {
+        let tmp = plan.lock().unwrap().tmp_dir.clone();
+        if let Some(tmp) = tmp {
+            let _ = std::fs::remove_dir_all(tmp);
         }
     }
-    let manifest = json!({
-        "source": "livesync-s3",
-        "direction": "download",
-        "mode": mode,
-        "shards": shards,
-        "applied": applied,
-        "partial": partial,
-        "skipped": skipped,
-        "errors": errors,
-        "bodyBytesTotal": body_bytes_total,
-        "note": "exported into an isolated directory; the vault itself is never touched",
-    });
-    let manifest_file = dir.join("manifest.json");
-    let _ = std::fs::write(
-        &manifest_file,
-        serde_json::to_string_pretty(&manifest).unwrap_or_default(),
+    set_status(
+        "done",
+        if err.is_some() { 2 } else { 1 },
+        err.as_deref().unwrap_or(""),
     );
-    if let Some(latest) = shards.iter().max() {
-        let p = sync_point_path(&st);
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&p, latest);
-    }
-    if let Some(tmp) = tmp_dir {
-        let _ = std::fs::remove_dir_all(tmp);
-    }
-    set_status("done", 1, "");
-    crate::ws::broadcast(
-        "sync-done",
-        json!({
-            "planId": req.plan_id, "target": target, "mode": mode,
-            "applied": applied, "partial": partial, "skipped": skipped, "errors": errors,
-        }),
-    );
-    ApiResp::ok(json!({
-        "applied": applied,
-        "partial": partial,
-        "skipped": skipped,
-        "errors": errors,
-        "bodyBytesTotal": body_bytes_total,
-        "manifest": manifest_file.to_string_lossy(),
-        "note": "no .md written into the vault; bodies live under .markvault/export/",
-    }))
+    crate::ws::broadcast("sync-done", json!({"target": target, "apply": summary}));
 }
 
 fn done_and_ok(phase: &str, error: &Option<String>) -> bool {
     phase == "done" && error.is_none()
 }
 
-
 fn cfg_passphrase() -> String {
     std::env::var("MARKVAULT_SYNC_PASSPHRASE").unwrap_or_default()
-}
-
-/// `target=import`: write reconstructed notes into the vault under
-/// `<notebook>/<remote-relative-path>`. Add-only — existing files and
-/// partial-coverage notes are skipped by default; every `.md` goes through
-/// the standard reindex + notify path so the file tree picks them up.
-fn import_into_vault(
-    st: &AppState,
-    req: &ApplyReq,
-    docs: &[Value],
-    chunks: &HashMap<String, PathBuf>,
-    pbk: &[u8],
-    shards: &[String],
-) -> ApiResp {
-    if let Some(e) = super::check_writable(st) {
-        return e;
-    }
-    let nb = req.notebook.trim().trim_matches('/');
-    if nb.is_empty() || nb.contains("..") {
-        return ApiResp::err(-1, "notebook required for target=import");
-    }
-    let mut imported = 0usize;
-    let mut skipped_existing = 0usize;
-    let mut skipped_partial = 0usize;
-    let mut skipped_empty = 0usize;
-    let mut errors = 0usize;
-    let mut body_bytes_total = 0usize;
-    for d in docs {
-        let t = d.get("type").and_then(Value::as_str).unwrap_or("");
-        if !is_main_doc(t) {
-            continue;
-        }
-        let children = d
-            .get("children")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let mut pieces: Vec<String> = Vec::new();
-        let mut miss = 0usize;
-        for c in &children {
-            let cid = c.as_str().unwrap_or("");
-            match chunks.get(cid) {
-                Some(file) => match std::fs::read_to_string(file) {
-                    Ok(body) => match decrypt_field(&body, &cfg_passphrase(), pbk) {
-                        Ok(piece) => pieces.push(piece),
-                        Err(_) => miss += 1,
-                    },
-                    Err(_) => miss += 1,
-                },
-                None => miss += 1,
-            }
-        }
-        if pieces.is_empty() {
-            skipped_empty += 1;
-            continue;
-        }
-        if miss > 0 && !req.include_partial {
-            skipped_partial += 1;
-            continue;
-        }
-        let raw_path = d.get("path").and_then(Value::as_str).unwrap_or("");
-        let Some(rel_tail) = safe_relative_path(raw_path) else {
-            skipped_partial += 1;
-            continue;
-        };
-        let rel = format!("{}/{}", nb, rel_tail.to_string_lossy().replace('\\', "/"));
-        // add-only: never overwrite an existing note
-        if st.vault.read_file(&rel).is_some() {
-            skipped_existing += 1;
-            continue;
-        }
-        let body = pieces.join("");
-        match st.vault.write_file(&rel, body.as_bytes()) {
-            Ok(_) => {
-                imported += 1;
-                body_bytes_total += body.len();
-                if rel.ends_with(".md") {
-                    super::ops::reindex_one(st, &rel);
-                }
-            }
-            Err(_) => errors += 1,
-        }
-    }
-    if imported > 0 {
-        super::ops::notify_tree();
-    }
-    if let Some(latest) = shards.iter().max() {
-        let p = sync_point_path(st);
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&p, latest);
-    }
-    set_status("done", 1, "");
-    ApiResp::ok(json!({
-        "imported": imported,
-        "skippedExisting": skipped_existing,
-        "skippedPartial": skipped_partial,
-        "skippedEmpty": skipped_empty,
-        "errors": errors,
-        "bodyBytesTotal": body_bytes_total,
-        "notebook": nb,
-        "note": "add-only import; existing notes were never overwritten",
-    }))
 }
 
 // ---------------------------------------------------------------- tests
@@ -1289,5 +1376,45 @@ mod tests {
     fn shard_millis_extracts_timestamp() {
         assert_eq!(shard_millis("1794397462713-docs.jsonl.gz"), Some(1794397462713));
         assert_eq!(shard_millis("nope"), None);
+    }
+
+    #[test]
+    fn plan_summary_includes_apply_state() {
+        let plan: SharedPlan = std::sync::Arc::new(std::sync::Mutex::new(Plan::new(
+            "p1".into(),
+            "tok".into(),
+            "full".into(),
+        )));
+        // no apply yet — field must still be present (null), not missing
+        let v = plan_summary("p1", &plan);
+        assert!(v.as_object().unwrap().contains_key("apply"));
+
+        {
+            let mut p = plan.lock().unwrap();
+            p.apply = Some(ApplyState {
+                target: "import".into(),
+                notebook: "livesync".into(),
+                include_partial: false,
+                phase: "reindexing".into(),
+                progress: 3,
+                total: 30,
+                imported: 3,
+                partial: 0,
+                skipped_existing: 0,
+                skipped_partial: 0,
+                skipped_empty: 0,
+                skipped_unsafe: 0,
+                errors: 0,
+                body_bytes_total: 123,
+                export_dir: None,
+                error: None,
+                done: false,
+            });
+        }
+        let v = plan_summary("p1", &plan);
+        let apply = v.get("apply").and_then(|a| a.as_object()).expect("apply object");
+        assert_eq!(apply.get("phase").and_then(|x| x.as_str()), Some("reindexing"));
+        assert_eq!(apply.get("progress").and_then(|x| x.as_u64()), Some(3));
+        assert_eq!(apply.get("done").and_then(|x| x.as_bool()), Some(false));
     }
 }
