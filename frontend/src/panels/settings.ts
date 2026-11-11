@@ -175,6 +175,50 @@ export async function showSettings() {
     })();
   }
 
+  // ---- petal management (kernel API, works outside the shell too) ----
+  void (async () => {
+    let petals: { name: string; enabled: boolean }[] = [];
+    try {
+      petals = (await api.loadPetals()).petals;
+    } catch {
+      return; // kernel without petal support
+    }
+    const rows = petals
+      .map(
+        (p) => `<div class="petal-row">
+          <span class="petal-name">${escapeHtml(p.name)}</span>
+          <label class="petal-toggle"><input type="checkbox" data-petal="${escapeHtml(p.name)}" ${p.enabled ? "checked" : ""} />启用</label>
+        </div>`
+      )
+      .join("");
+    (dialog.querySelector(".actions") as HTMLElement).insertAdjacentHTML(
+      "beforebegin",
+      `<div class="set-row">
+        <label class="set-label">插件</label>
+        <div class="set-input" id="set-petals">
+          ${rows || '<div class="petal-empty">无已安装插件（.markvault/petal/&lt;name&gt;/index.js）</div>'}
+          <div class="set-hint">启停后重启 markvault 生效；插件代码目录由内核 /petal/ 托管</div>
+        </div>
+      </div>`
+    );
+    const savePetals = () => {
+      void (async () => {
+        const next = Array.from(dialog.querySelectorAll<HTMLInputElement>("#set-petals input[data-petal]")).map(
+          (c) => ({ name: c.dataset.petal!, enabled: c.checked })
+        );
+        try {
+          await api.setPetals(next);
+          toast("插件配置已保存，重启 markvault 后生效");
+        } catch (e) {
+          toast("保存失败: " + (e as Error).message);
+        }
+      })();
+    };
+    dialog.querySelectorAll<HTMLInputElement>("#set-petals input[data-petal]").forEach((c) => {
+      c.onchange = savePetals;
+    });
+  })();
+
   (dialog.querySelector(".ok") as HTMLElement).onclick = () => {
     void (async () => {
       const port = parseInt((dialog.querySelector("#set-port") as HTMLInputElement).value, 10);

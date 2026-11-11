@@ -37,7 +37,20 @@ async fn ping() -> ApiResp {
 
 async fn get_conf(State(st): State<Arc<AppState>>) -> ApiResp {
     let conf = st.conf.read().unwrap().clone();
-    let data = serde_json::to_value(&conf).unwrap_or(Value::Null);
+    // hand-built camelCase view: the SPA reads camelCase keys, while the
+    // on-disk conf.json stays snake_case (serde default) for compatibility
+    let data = json!({
+        "kernelVersion": conf.kernel_version,
+        "port": conf.port,
+        "networkServe": conf.network_serve,
+        "accessAuthCode": conf.access_auth_code,
+        "apiToken": conf.api_token,
+        "readonly": conf.readonly,
+        "parentAttr": conf.parent_attr,
+        "weightAttr": conf.weight_attr,
+        "ignorePatterns": conf.ignore_patterns,
+        "theme": conf.theme,
+    });
     ApiResp::ok(json!({"conf": data, "workspace": st.workspace.display().to_string()}))
 }
 

@@ -364,3 +364,25 @@ body {
 .ws-port { font-size: 11px; color: var(--text-dim); }
 .ws-badge { font-size: 11px; color: var(--accent); }
 .ws-empty { font-size: 12px; color: var(--text-dim); }
+
+/* ---- responsive / mobile layout (M11) ---- */
+.mobile-toggle { display: none; }
+@media (max-width: 860px) {
+  .mobile-toggle { display: inline-block; }
+  .mv-dock, .mv-right {
+    position: fixed;
+    top: 40px;
+    bottom: 0;
+    width: 280px !important;
+    max-width: 78vw;
+    z-index: 50;
+    background: var(--bg, #1e1e28);
+    box-shadow: 0 4px 24px rgba(0,0,0,.45);
+    transform: translateX(-110%);
+    transition: transform .18s ease;
+  }
+  .mv-right { right: 0; left: auto; transform: translateX(110%); }
+  .mv-dock.mobile-open { transform: translateX(0); }
+  .mv-right.mobile-open { transform: translateX(0); }
+  .mv-dock-resizer { display: none; }
+}

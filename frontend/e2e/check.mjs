@@ -430,6 +430,37 @@ try {
   check("petal-命令执行", true);
   await page.screenshot({ path: shots + "t13_petal.png" });
 
+  // 12b. petal enable/disable UI in the settings dialog
+  await page.click('.mv-toolbar button:has-text("设置")');
+  await page.waitForSelector(".settings-dialog", { timeout: 4000 });
+  await page.waitForTimeout(500);
+  const setPetal = await page.textContent("#set-petals");
+  const sampleToggle = await page.locator('#set-petals input[data-petal="sample"]').count();
+  check("petal-设置面板启停", setPetal.includes("sample") && sampleToggle === 1, setPetal.slice(0, 60));
+  await page.click(".settings-dialog .cancel");
+
+  // 13. responsive: narrow viewport gets drawer toggles; dock slides in
+  const page2 = await browser.newPage({ viewport: { width: 480, height: 800 } });
+  page2.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 200)));
+  await page2.goto(base, { waitUntil: "domcontentloaded" });
+  await page2.waitForSelector(".mv-toolbar", { timeout: 8000 });
+  const toggleVis = await page2.locator(".mv-toolbar button.mobile-toggle").first().isVisible();
+  check("响应式-小屏切换按钮", toggleVis);
+  await page2.click(".mv-toolbar button.mobile-toggle >> nth=0");
+  await page2.waitForTimeout(300);
+  const dockLeft = await page2.evaluate(
+    () => document.querySelector(".mv-dock").getBoundingClientRect().left
+  );
+  check("响应式-文件抽屉打开", dockLeft >= -2 && dockLeft < 300, `left=${dockLeft}`);
+  await page2.click(".mv-toolbar button.mobile-toggle >> nth=0");
+  await page2.waitForTimeout(300);
+  const dockClosed = await page2.evaluate(
+    () => document.querySelector(".mv-dock").getBoundingClientRect().left
+  );
+  check("响应式-文件抽屉收起", dockClosed < -10, `left=${dockClosed}`);
+  await page2.close();
+  await page.screenshot({ path: shots + "t14_mobile.png" });
+
 } catch (e) {
   check("异常中断", false, String(e).slice(0, 300));
   await page.screenshot({ path: shots + "tx_error.png" });

@@ -42,7 +42,14 @@ export class App {
     const cmdBtn = el("button", "btn", "命令");
     cmdBtn.title = "插件命令";
     cmdBtn.onclick = () => openCommandMenu(cmdBtn);
-    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, cmdBtn, settingsBtn, themeBtn);
+    // mobile-only drawer toggles (visible via media query on narrow screens)
+    const dockToggle = el("button", "btn mobile-toggle", "☰");
+    dockToggle.title = "文件面板";
+    const rightToggle = el("button", "btn mobile-toggle", "▤");
+    rightToggle.title = "右侧面板";
+    dockToggle.onclick = () => this.toggleMobilePanel(dock, right, "mobile-open");
+    rightToggle.onclick = () => this.toggleMobilePanel(right, dock, "mobile-open");
+    toolbar.append(brand, dockToggle, rightToggle, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, cmdBtn, settingsBtn, themeBtn);
 
     const main = el("div", "mv-main");
     const dock = el("div", "mv-dock");
@@ -190,6 +197,11 @@ export class App {
     this.vtree.refresh();
     this.applyTheme();
     void loadPetals(this.tabs);
+  }
+
+  private toggleMobilePanel(show: HTMLElement, hide: HTMLElement, cls: string) {
+    show.classList.toggle(cls);
+    hide.classList.remove(cls);
   }
 
   private addTabBar(
