@@ -56,6 +56,7 @@ app/src-tauri/          Tauri v2 壳
 5. **内嵌浏览器（M6）**：SPA 浏览器面板 = 控制器（页签列表/地址栏/前进后退/剪藏/收藏/下载），壳 `browser.rs` = 窗口组管理。页签窗口 URL/title 由壳轮询并以 `browser:*` 事件推回主窗口；SPA 收到 url 变化即 `POST /api/history/add`（内核 10min 去重+5000 上限）。页面内操作（收藏/剪 HTML）由壳 eval 注入的操作栏完成——页面上下文 fetch 内核（本地 Host 信任放行 + CORS very_permissive），登录页 DOM 内核拿不到，这正是 `clipHtml` 存在的理由。
 6. **关系图谱（M11）**：`/api/graph/getGraph` 返回 docs 全量节点 + links 表经 resolve_target 解析的 doc→doc 边（未解析目标跳过）；前端 panels/graph.ts 手写力导向（斥力/弹簧/中心引力/alpha 衰减 + 画布软边界），节点点击打开文档、拖拽钉住、滚轮缩放。hidden dock 页 canvas rect=0 → IntersectionObserver 首次可见才加载。
 7. **快照历史（M11）**：`/api/repo/*` + `.markvault/repo/<sha256(path)16>/<millis>-<chash8>.md` 内容寻址存储（同内容去重、每文档 30 版上限）。putFile 写前自动留存旧内容；restore 前自动留存当前内容。前端「历史版本」对话框（文件树右键 / 编辑器工具行）列表+预览+恢复。plaintext MVP，加密未做。
+8. **插件系统（M11）**：`.markvault/petal/petals.json` 注册表（[{name,enabled}]）+ 每插件 conf.json；`/api/petal/loadPetals|setPetals|getPetalConf|setPetalConf`；内核 ServeDir 只读托管 `/petal/<name>/`；前端 petal/loader.ts 动态 import index.js（default export class，构造收 host，onload/onunload 生命周期），宿主暴露 api/ui/getActiveDoc/insertToActiveDoc/addCommand；工具栏「命令」按钮列全部插件命令。信任模型 = 用户自装插件（思源同），加载即执行任意 JS。
 
 ## 设计决策与取舍
 

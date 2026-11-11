@@ -11,6 +11,7 @@ import { BrowserPanel } from "../panels/browser";
 import { GraphPanel } from "../panels/graph";
 import { VTreePanel } from "../vtree/panel";
 import { settingsButton } from "../panels/settings";
+import { loadPetals, openCommandMenu } from "../petal/loader";
 import { editorTheme } from "../editor/cm";
 
 /**
@@ -38,7 +39,10 @@ export class App {
     const rebuildBtn = el("button", "btn", "重建索引");
     const clipBtn = el("button", "btn", "剪藏");
     const exportNbBtn = el("button", "btn", "导出笔记本");
-    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, settingsBtn, themeBtn);
+    const cmdBtn = el("button", "btn", "命令");
+    cmdBtn.title = "插件命令";
+    cmdBtn.onclick = () => openCommandMenu(cmdBtn);
+    toolbar.append(brand, el("span", "", ""), rebuildBtn, clipBtn, exportNbBtn, cmdBtn, settingsBtn, themeBtn);
 
     const main = el("div", "mv-main");
     const dock = el("div", "mv-dock");
@@ -185,6 +189,7 @@ export class App {
     await this.filetree.refresh();
     this.vtree.refresh();
     this.applyTheme();
+    void loadPetals(this.tabs);
   }
 
   private addTabBar(

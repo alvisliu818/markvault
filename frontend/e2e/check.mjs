@@ -1,7 +1,7 @@
 // markvault E2E smoke check — headless Edge via playwright-core
 // Usage: node e2e/check.mjs [baseUrl]
 import { chromium } from "playwright-core";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
 
 const base = process.argv[2] || "http://127.0.0.1:7806";
 const shots = new URL("../../_e2e/", import.meta.url).pathname.replace(/^\/([A-Za-z]):/, "$1:");
@@ -15,6 +15,21 @@ const check = (name, ok, extra = "") => {
 
 const browser = await chromium.launch({ channel: "msedge", headless: true });
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+
+// seed a sample petal (plugin system) into the test vault's .markvault/petal
+const tv = new URL("../../testvault/", import.meta.url).pathname.replace(/^\/([A-Za-z]):/, "$1:");
+const petalDir = tv + ".markvault/petal/sample";
+mkdirSync(petalDir, { recursive: true });
+writeFileSync(
+  petalDir + "/index.js",
+  "export default class {\n" +
+  "  constructor(host) { this.host = host; }\n" +
+  "  onload() { this.host.addCommand('hello', '问好', () => this.host.ui.toast('Hello from sample petal!')); }\n" +
+  "  onunload() {}\n" +
+  "}\n"
+);
+writeFileSync(petalDir + "/../petals.json", JSON.stringify([{ name: "sample", enabled: true }]));
+
 page.on("console", (m) => {
   if (m.type() === "error") console.log("[console.error]", m.text().slice(0, 200));
 });
@@ -215,8 +230,7 @@ try {
 
   // 10g. watcher: directory create/rename -> precise prefix reindex (no manual
   // rebuild) + subFileCount direct-child semantics (Obsidian parity)
-  const tv = new URL("../../testvault/", import.meta.url).pathname.replace(/^\/([A-Za-z]):/, "$1:");
-  const { mkdirSync, writeFileSync, renameSync, rmSync } = await import("node:fs");
+  // (tv / fs helpers seeded at top of file)
   const dir1 = tv + "笔记本A/E2E目录";
   mkdirSync(dir1 + "/子", { recursive: true });
   writeFileSync(dir1 + "/直接.md", "---\ntitle: 直接\n---\n\nmvWatcherE2Exyz 直接子文档\n");
@@ -384,10 +398,44 @@ try {
     });
   });
   check("清理E2E临时文档", true);
+
+  // 12. petal plugin system: sample petal seeded at startup — static hosting,
+  // registry, command menu, execution toast (page reloaded so the loader runs)
+  const petalJs = await page.evaluate(async () => {
+    const r = await fetch("/petal/sample/index.js");
+    return { status: r.status, text: await r.text() };
+  });
+  check("petal-静态托管", petalJs.status === 200 && petalJs.text.includes("sample petal"), `status=${petalJs.status}`);
+  const reg = await page.evaluate(async () => {
+    const r = await fetch("/api/petal/loadPetals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    return (await r.json()).data.petals;
+  });
+  check("petal-注册表", reg.some((p) => p.name === "sample" && p.enabled), JSON.stringify(reg).slice(0, 60));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".mv-toolbar", { timeout: 8000 });
+  await page.waitForTimeout(1200); // dynamic import + onload
+  await page.click('.mv-toolbar button:has-text("命令")');
+  await page.waitForSelector(".mv-menu", { timeout: 4000 });
+  const menuText = await page.textContent(".mv-menu");
+  check("petal-命令菜单", menuText.includes("sample: 问好"), menuText.slice(0, 60));
+  await page.click(".mv-menu .mv-menu-item");
+  await page.waitForFunction(
+    () => document.querySelector(".mv-toast")?.textContent?.includes("Hello from sample petal"),
+    { timeout: 4000 }
+  );
+  check("petal-命令执行", true);
+  await page.screenshot({ path: shots + "t13_petal.png" });
+
 } catch (e) {
   check("异常中断", false, String(e).slice(0, 300));
   await page.screenshot({ path: shots + "tx_error.png" });
 } finally {
+  // cleanup sample petal from the test vault
+  rmSync(tv + ".markvault/petal", { recursive: true, force: true });
   await browser.close();
 }
 

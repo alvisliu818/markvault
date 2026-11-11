@@ -221,6 +221,13 @@ export const api = {
   getSnapshot: (path: string, id: string) => post<{ content: string }>("/api/repo/getSnapshot", { path, id }),
   restoreSnapshot: (path: string, id: string) => post("/api/repo/restoreSnapshot", { path, id }),
   cleanSnapshots: (path: string) => post("/api/repo/cleanSnapshots", { path }),
+  // petals (plugin system, /api/petal/*)
+  loadPetals: () =>
+    post<{ petals: { name: string; enabled: boolean }[] }>("/api/petal/loadPetals"),
+  setPetals: (petals: { name: string; enabled: boolean }[]) =>
+    post("/api/petal/setPetals", { petals }),
+  getPetalConf: <T>(name: string) => post<T>("/api/petal/getPetalConf", { name }),
+  setPetalConf: (name: string, conf: unknown) => post("/api/petal/setPetalConf", { name, conf }),
 };
 
 // ---- WebSocket push ----

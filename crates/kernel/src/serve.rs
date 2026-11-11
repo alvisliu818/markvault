@@ -118,6 +118,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         .merge(api::routes().with_state(state.clone()))
         .merge(api::ws_routes().with_state(state.clone()));
 
+    // petal plugin static hosting (read-only, /petal/<name>/index.js entry)
+    let petal_dir = crate::conf::markvault_dir(&state.workspace).join("petal");
+    app = app.nest_service("/petal", ServeDir::new(&petal_dir));
+
     app = match frontend_dir() {
         Some(dir) => {
             let index_file = dir.join("index.html");
