@@ -349,7 +349,11 @@ fn set_status(phase: &str, result: i32, error: &str) {
 struct Plan {
     token: String,
     shards: Vec<String>,
-    docs: Value,
+    /// all main docs (`plain`/`newnote`/`notes`) found in the shards
+    docs: Vec<Value>,
+    /// decrypted chunk bodies keyed by `h:+<64hex>` (S2)
+    chunks: HashMap<String, String>,
+    pbkdf2_salt: Vec<u8>,
     created: u64,
 }
 
@@ -434,8 +438,27 @@ struct PlanReq {
     limit: usize,
 }
 
-/// Decrypt the newest N shards, inflate and parse JSONL; returns a preview only.
-/// No files are written and no Markdown body is reconstructed yet (S2).
+/// Journal chunk row: `~h:+<64hex>` + US (`\u{1f}`) separator + body.
+/// Returns (`h:+<64hex>`, body). The body may be plaintext or a `%=`-prefixed
+/// encrypted field — callers decide via `decrypt_field`.
+fn parse_chunk_row(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("~h:+")?;
+    let hex_end = rest.find(|c: char| !c.is_ascii_hexdigit())?;
+    if hex_end == 0 {
+        return None;
+    }
+    if &rest[hex_end..hex_end + 1] != "\u{1f}" {
+        return None;
+    }
+    Some((format!("h:+{}", &rest[..hex_end]), rest[hex_end + 1..].to_string()))
+}
+
+fn is_main_doc(t: &str) -> bool {
+    matches!(t, "plain" | "newnote" | "notes")
+}
+
+/// Decrypt the newest N shards, inflate and parse JSONL; returns a preview plus
+/// a plan that can be applied later. No files are written here.
 async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let req: PlanReq = parse(&bytes);
     let limit = req.limit.clamp(1, 20);
@@ -457,10 +480,10 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
             .collect();
         shards.sort();
         let take: Vec<String> = shards.iter().rev().take(limit).cloned().collect();
-        let mut docs: Vec<Value> = Vec::new();
+        let mut raw_docs: Vec<Value> = Vec::new();
+        let mut chunks: HashMap<String, String> = HashMap::new();
         let mut lines_total = 0usize;
         let mut parse_errors = 0usize;
-        let mut by_id = HashMap::new();
         for key in &take {
             let path = format!("/{}/{}", cfg.bucket, key);
             let raw = s3_get(&cfg, &path, "").await?;
@@ -473,35 +496,72 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
                 }
                 lines_total += 1;
                 match serde_json::from_str::<Value>(line) {
-                    Ok(v) => {
-                        if let Some(id) = v.get("_id").and_then(Value::as_str) {
-                            by_id.insert(id.to_string(), ());
+                    Ok(v) => raw_docs.push(v),
+                    Err(_) => match parse_chunk_row(line) {
+                        Some((id, body)) => {
+                            chunks.insert(id, body);
                         }
-                        if docs.len() < 200 {
-                            docs.push(json!({
-                                "id": v.get("_id").and_then(Value::as_str).unwrap_or(""),
-                                "type": v.get("type").and_then(Value::as_str).unwrap_or(""),
-                                "path": v.get("path").and_then(Value::as_str).unwrap_or(""),
-                                "size": v.get("size").and_then(Value::as_u64).unwrap_or(0),
-                                "children": v.get("children").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0),
-                                "dataPrefix": v.get("data").and_then(Value::as_str).map(|s| s.chars().take(2).collect::<String>()).unwrap_or_default(),
-                            }));
-                        }
-                    }
-                    Err(_) => parse_errors += 1,
+                        None => parse_errors += 1,
+                    },
                 }
             }
         }
+        // Build the doc preview with per-doc chunk coverage.
+        let mut docs: Vec<Value> = Vec::new();
+        let mut docs_total = 0usize;
+        let mut docs_complete = 0usize;
+        let mut docs_partial = 0usize;
+        let mut docs_uncovered = 0usize;
+        for v in &raw_docs {
+            let t = v.get("type").and_then(Value::as_str).unwrap_or("");
+            if !is_main_doc(t) {
+                continue;
+            }
+            docs_total += 1;
+            let children = v.get("children").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mut hit = 0usize;
+            let mut body_bytes = 0usize;
+            for c in &children {
+                let cid = c.as_str().unwrap_or("");
+                if let Some(p) = chunks.get(cid) {
+                    hit += 1;
+                    body_bytes += p.len();
+                }
+            }
+            let missing = children.len() - hit;
+            if children.is_empty() || missing == 0 {
+                docs_complete += 1;
+            } else if hit > 0 {
+                docs_partial += 1;
+            } else {
+                docs_uncovered += 1;
+            }
+            if docs.len() < 200 {
+                docs.push(json!({
+                    "id": v.get("_id").and_then(Value::as_str).unwrap_or(""),
+                    "type": t,
+                    "path": v.get("path").and_then(Value::as_str).unwrap_or(""),
+                    "size": v.get("size").and_then(Value::as_u64).unwrap_or(0),
+                    "children": children.len(),
+                    "chunksHit": hit,
+                    "chunksMissing": missing,
+                    "bodyBytes": body_bytes,
+                }));
+            }
+        }
+        let chunk_rows_total = chunks.len();
         let plan_id = format!("mv-{}", Utc::now().timestamp_millis());
         let token = format!("{:016x}", rand::random::<u64>());
-        let doc_value = json!(docs);
+        let preview = json!(docs);
         if let Ok(mut p) = plans().lock() {
             p.insert(
                 plan_id.clone(),
                 Plan {
                     token: token.clone(),
                     shards: take.clone(),
-                    docs: doc_value.clone(),
+                    docs: raw_docs,
+                    chunks,
+                    pbkdf2_salt: pbk.clone(),
                     created: Utc::now().timestamp() as u64,
                 },
             );
@@ -521,10 +581,14 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
             "direction": "download",
             "shards": take,
             "lines": lines_total,
-            "uniqueIds": by_id.len(),
+            "chunkRows": chunk_rows_total,
             "parseErrors": parse_errors,
-            "docs": doc_value,
-            "note": "S1 preview only: chunk documents were not present in the sampled shards, so Markdown bodies are not reconstructed yet (S2).",
+            "docsTotal": docs_total,
+            "docsComplete": docs_complete,
+            "docsPartial": docs_partial,
+            "docsUncovered": docs_uncovered,
+            "docs": preview,
+            "note": "plan only: call applyPull with target=export to write reconstructed .md files into the isolated export directory",
             "localSyncPoint": read_sync_point(&st),
         }))
     }
@@ -552,15 +616,55 @@ struct ApplyReq {
     target: String,
 }
 
-/// Apply a preview plan. `export` writes only a manifest into an isolated
-/// directory; `index` is deferred until S2 can rebuild Markdown bodies.
+/// Sanitize a remote path into a safe relative export path.
+/// Rejects traversal, absolute paths and drive prefixes; strips the
+/// LiveSync namespace prefixes (`i:` / `ix:` / `ps:`) component-wise.
+fn safe_relative_path(raw: &str) -> Option<std::path::PathBuf> {
+    let norm = raw.replace('\\', "/");
+    let trimmed = norm.trim_start_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut out = std::path::PathBuf::new();
+    for comp in trimmed.split('/') {
+        let comp = comp.trim();
+        if comp.is_empty() || comp == "." || comp.contains("..") {
+            return None;
+        }
+        let comp = comp
+            .strip_prefix("ix:")
+            .or_else(|| comp.strip_prefix("i:"))
+            .or_else(|| comp.strip_prefix("ps:"))
+            .unwrap_or(comp);
+        if comp.is_empty() {
+            return None;
+        }
+        out.push(comp);
+    }
+    if out.as_os_str().is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Apply a preview plan. `export` writes the reconstructed `.md` bodies into an
+/// isolated directory under `.markvault/export/` — never into the vault.
+/// `index` is deferred until the import pipeline lands.
 async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let req: ApplyReq = parse(&bytes);
     let plan = plans().lock().ok().and_then(|p| {
-        p.get(&req.plan_id)
-            .map(|v| (v.token.clone(), v.shards.clone(), v.docs.clone()))
+        p.get(&req.plan_id).map(|v| {
+            (
+                v.token.clone(),
+                v.shards.clone(),
+                v.docs.clone(),
+                v.chunks.clone(),
+                v.pbkdf2_salt.clone(),
+            )
+        })
     });
-    let (expected_token, shards, docs) = match plan {
+    let (expected_token, shards, raw_docs, chunks, pbk) = match plan {
         Some(p) => p,
         None => return ApiResp::err(-1, "unknown or expired planId"),
     };
@@ -572,11 +676,8 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     } else {
         &req.target
     };
-    if target == "index" {
-        return ApiResp::err(-1, "target=index is deferred until S2 (Markdown body reconstruction)");
-    }
     if target != "export" {
-        return ApiResp::err(-1, "target must be export or index");
+        return ApiResp::err(-1, "target must be export (or wait for the index pipeline)");
     }
     let dir = st
         .workspace
@@ -585,20 +686,72 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return ApiResp::err(-1, &format!("mkdir export: {}", e));
     }
+    let mut applied = 0usize;
+    let mut partial = 0usize;
+    let mut skipped = 0usize;
+    let mut errors = 0usize;
+    let mut body_bytes_total = 0usize;
+    for d in &raw_docs {
+        let t = d.get("type").and_then(Value::as_str).unwrap_or("");
+        if !is_main_doc(t) {
+            continue;
+        }
+        let children = d.get("children").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut pieces: Vec<String> = Vec::new();
+        let mut miss = 0usize;
+        for c in &children {
+            let cid = c.as_str().unwrap_or("");
+            match chunks.get(cid) {
+                Some(body) => match decrypt_field(body, &cfg_passphrase(), &pbk) {
+                    Ok(piece) => pieces.push(piece),
+                    Err(_) => miss += 1,
+                },
+                None => miss += 1,
+            }
+        }
+        if pieces.is_empty() {
+            skipped += 1;
+            continue;
+        }
+        if miss > 0 {
+            partial += 1;
+        }
+        let raw_path = d.get("path").and_then(Value::as_str).unwrap_or("");
+        let Some(rel) = safe_relative_path(raw_path) else {
+            skipped += 1;
+            continue;
+        };
+        let file = dir.join(&rel);
+        if let Some(parent) = file.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                errors += 1;
+                continue;
+            }
+        }
+        match std::fs::write(&file, pieces.join("")) {
+            Ok(_) => {
+                applied += 1;
+                body_bytes_total += pieces.join("").len();
+            }
+            Err(_) => errors += 1,
+        }
+    }
     let manifest = json!({
         "source": "livesync-s3",
         "direction": "download",
         "shards": shards,
-        "docs": docs,
-        "note": "metadata preview only; .md files are intentionally NOT written (read-only discipline)",
+        "applied": applied,
+        "partial": partial,
+        "skipped": skipped,
+        "errors": errors,
+        "bodyBytesTotal": body_bytes_total,
+        "note": "exported into an isolated directory; the vault itself is never touched",
     });
     let file = dir.join("manifest.json");
-    if let Err(e) = std::fs::write(
+    let _ = std::fs::write(
         &file,
         serde_json::to_string_pretty(&manifest).unwrap_or_default(),
-    ) {
-        return ApiResp::err(-1, &format!("write manifest: {}", e));
-    }
+    );
     if let Some(latest) = shards.iter().max() {
         let p = sync_point_path(&st);
         if let Some(parent) = p.parent() {
@@ -608,12 +761,18 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     }
     set_status("done", 1, "");
     ApiResp::ok(json!({
-        "applied": 0,
-        "skipped": 0,
-        "conflicts": 0,
+        "applied": applied,
+        "partial": partial,
+        "skipped": skipped,
+        "errors": errors,
+        "bodyBytesTotal": body_bytes_total,
         "manifest": file.to_string_lossy(),
-        "note": "no .md written; S2 will reconstruct bodies",
+        "note": "no .md written into the vault; bodies live under .markvault/export/",
     }))
+}
+
+fn cfg_passphrase() -> String {
+    std::env::var("MARKVAULT_SYNC_PASSPHRASE").unwrap_or_default()
 }
 
 // ---------------------------------------------------------------- tests
@@ -691,5 +850,30 @@ mod tests {
         assert_eq!(entries[1].1, 456);
         assert_eq!(token.as_deref(), Some("abc+/="));
         assert!(truncated);
+    }
+
+    #[test]
+    fn chunk_row_parses_us_separator() {
+        let row = "~h:+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\u{1f}hello chunk";
+        let (id, body) = parse_chunk_row(row).unwrap();
+        assert_eq!(id, "h:+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+        assert_eq!(body, "hello chunk");
+        assert!(parse_chunk_row("{\"type\":\"plain\"}").is_none());
+        assert!(parse_chunk_row("~h:+abc other-sep").is_none());
+    }
+
+    #[test]
+    fn safe_relative_path_rejects_traversal() {
+        assert_eq!(
+            safe_relative_path("260817/笔记/首页.md"),
+            Some(std::path::PathBuf::from("260817/笔记/首页.md"))
+        );
+        assert!(safe_relative_path("../evil.md").is_none());
+        assert!(safe_relative_path("a/../../b.md").is_none());
+        assert!(safe_relative_path("").is_none());
+        assert_eq!(
+            safe_relative_path("/260817/a.md"),
+            Some(std::path::PathBuf::from("260817/a.md"))
+        );
     }
 }
