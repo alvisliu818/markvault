@@ -111,8 +111,26 @@
 
 ### 建议顺序
 
-1. **壳内人工点验剩余 7 项**（自动项已完成并产出修复轮）
-2. **LiveSync 只读拉取**（✅ S1-S4 + S5 进度事件 + S6 快照加密已交付；日常用法 = 启动内核带 `MARKVAULT_SYNC_*` 环境变量 → `planPull` → `getPlan` 轮询 → `applyPull(import, notebook=…)`；剩余：全量首拉实测、前端同步 UI）
-3. **出 0.3.0 安装包**固化成果
+1. **LiveSync 后续待办**（见下节「LiveSync 后续待办（2026-11-11 暂停点）」——正在收尾）
+2. **壳内人工点验剩余 7 项**（自动项已完成并产出修复轮）
+3. **前端同步 UI polish**（进度条、错误态；核心 UI 已随 S5 交付）
+4. **出 0.3.0 安装包**固化成果
+
+### LiveSync 后续待办（2026-11-11 暂停点）
+
+S1-S7 主体已交付并推送（至 `891ca68`，34/34 单测、零 warning、全量首拉实测通过）。暂停时正在做「applyPull 后台化 + 批量 reindex」性能优化——代码已写好（工作区**未提交**，34/34 单测过、30 分片实机导入已生效 51 篇），续做顺序：
+
+1. **修 getPlan 缺 apply 字段**：`get_plan` 的 json! 组装漏了 `"apply": inner.apply`，导致导入进度轮询读不到（验证输出全为 None）——一行修复。
+2. **重验导入进度**：`planPull(full, limit=30)` → `applyPull(import, notebook=…)` → `getPlan` 轮询 `apply.phase`（writing→reindexing→done）。
+3. **提交工作区改动**：applyPull 后台化（`spawn_blocking` + `ApplyState` + `rebuild_all_ext` 批量索引）+ 前端 api/settings 改动，验证后一并提交。
+4. **清理测试库**：`testvault/livesync/`（51 篇明文导入笔记）、`.markvault/sync/livesync/latest-sync` 水位、`repo/` 加密测试快照；`_tmp/new_apply.rs`、`_tmp/s4_perf.py` 探针。
+5. **补 memory 日志**：applyPull 后台化过程与坑（getPlan 漏字段；save_conf 克隆陷阱已在 S6 记过）。
+
+已量化/待查：
+
+- applyPull 全量导入耗时长：6,851 篇逐篇 reindex 超 HTTP 客户端 300s 超时（后台化后不再受限，结果正确）；批量 `rebuild_all_ext` 的实际收益待量化。
+- docCount 口径差异：`lsNotebooks` 显示 1082 vs 磁盘 6,850 个 .md（可能是 reindex 异步未追上或统计口径），FTS 已可搜到导入内容。
+- 全量「拉取+导入」端到端在修复后完整重跑一次。
+- 更远：petal 密钥管理、Tauri mobile 构建。
 
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。
