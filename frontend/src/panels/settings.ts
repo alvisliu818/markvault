@@ -74,7 +74,7 @@ export async function showSettings() {
         return;
       }
       (dialog.querySelector(".actions") as HTMLElement).insertAdjacentHTML(
-        "beforeend",
+        "beforebegin",
         `<div class="set-row">
           <label class="set-label">vault 目录</label>
           <div class="set-input">

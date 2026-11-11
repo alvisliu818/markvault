@@ -276,13 +276,18 @@ body {
 .mv-dialog {
   width: 420px; background: var(--bg-panel); border: 1px solid var(--border);
   border-radius: 8px; padding: 20px;
+  max-height: calc(100vh - 80px); overflow-y: auto;
 }
 .mv-dialog h3 { margin: 0 0 14px; }
 .mv-dialog input[type=text] {
   width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
   padding: 8px; border-radius: 4px; outline: none; margin-bottom: 14px;
 }
-.mv-dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.mv-dialog .actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  position: sticky; bottom: -20px; z-index: 1;
+  background: var(--bg-panel); padding: 10px 0 0;
+}
 
 /* toast */
 .mv-toast {
