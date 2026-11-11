@@ -33,6 +33,17 @@ pub struct Conf {
     /// UI theme: 0 light, 1 dark
     #[serde(default = "default_theme")]
     pub theme: u8,
+    /// Snapshot repo encryption (SiYuan Conf.Repo.Key style): when enabled,
+    /// snapshot bodies are stored AES-256-GCM encrypted with `repo_key`.
+    #[serde(default)]
+    pub repo_encryption: bool,
+    /// salt (hex, 16B) used to derive `repo_key` from the init passphrase
+    #[serde(default)]
+    pub repo_salt: String,
+    /// derived repo key (hex, 32B), persisted like SiYuan's Conf.Repo.Key
+    /// (desktop-app trust boundary: the workspace files themselves)
+    #[serde(default)]
+    pub repo_key: String,
 }
 
 fn default_port() -> u16 {
@@ -70,6 +81,9 @@ impl Default for Conf {
             weight_attr: default_weight_attr(),
             ignore_patterns: default_ignore(),
             theme: default_theme(),
+            repo_encryption: false,
+            repo_salt: String::new(),
+            repo_key: String::new(),
         }
     }
 }

@@ -352,6 +352,7 @@ fn set_status(phase: &str, result: i32, error: &str) {
 /// A pull plan. Long-running jobs stay in this map and are driven by a
 /// background task; clients poll `getPlan` for phase/progress.
 struct Plan {
+    plan_id: String,
     token: String,
     mode: String, // "incremental" | "full"
     phase: String,
@@ -376,8 +377,9 @@ struct Plan {
 }
 
 impl Plan {
-    fn new(token: String, mode: String) -> Self {
+    fn new(plan_id: String, token: String, mode: String) -> Self {
         Self {
+            plan_id,
             token,
             mode,
             phase: "preparing".into(),
@@ -565,7 +567,7 @@ async fn plan_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
     let plan_id = format!("mv-{}", Utc::now().timestamp_millis());
     let token = format!("{:016x}", rand::random::<u64>());
     let mode = if req.full { "full" } else { "incremental" }.to_string();
-    let plan: SharedPlan = Arc::new(Mutex::new(Plan::new(token.clone(), mode.clone())));
+    let plan: SharedPlan = Arc::new(Mutex::new(Plan::new(plan_id.clone(), token.clone(), mode.clone())));
     if let Ok(mut p) = plans().lock() {
         p.insert(plan_id.clone(), plan.clone());
         if p.len() > 8 {
@@ -718,6 +720,7 @@ async fn run_pull_job(st: Arc<AppState>, cfg: SyncConfig, plan: SharedPlan, limi
             if let Ok(mut p) = plan.lock() {
                 p.progress = i + 1;
             }
+            push_plan_progress(&plan);
         }
         shard_texts.sort_by(|a, b| a.0.cmp(&b.0)); // apply latest shard last
 
@@ -830,26 +833,41 @@ async fn run_pull_job(st: Arc<AppState>, cfg: SyncConfig, plan: SharedPlan, limi
     .await;
     match result {
         Ok(()) => {
-            let mut p = plan.lock().unwrap();
-            p.phase = "done".into();
-            p.done = true;
+            set_phase(&plan, "done", None);
+            plan.lock().unwrap().done = true;
         }
         Err(e) => {
-            let mut p = plan.lock().unwrap();
-            p.phase = "error".into();
-            p.error = Some(e.clone());
-            p.done = true;
+            set_phase(&plan, "error", Some(e.clone()));
+            plan.lock().unwrap().done = true;
             set_status("idle", 2, &e);
         }
     }
 }
 
 fn set_phase(plan: &SharedPlan, phase: &str, error: Option<String>) {
-    if let Ok(mut p) = plan.lock() {
+    let (plan_id, progress, progress_total) = {
+        let mut p = plan.lock().unwrap();
         p.phase = phase.to_string();
         if let Some(e) = error {
             p.error = Some(e);
         }
+        (p.plan_id.clone(), p.progress, p.progress_total)
+    };
+    crate::ws::broadcast(
+        "sync-progress",
+        json!({"planId": plan_id, "phase": phase, "progress": progress, "progressTotal": progress_total}),
+    );
+}
+
+fn push_plan_progress(plan: &SharedPlan) {
+    if let Ok(p) = plan.lock() {
+        crate::ws::broadcast(
+            "sync-progress",
+            json!({
+                "planId": p.plan_id, "phase": p.phase,
+                "progress": p.progress, "progressTotal": p.progress_total,
+            }),
+        );
     }
 }
 
@@ -1034,6 +1052,13 @@ async fn apply_pull(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
         let _ = std::fs::remove_dir_all(tmp);
     }
     set_status("done", 1, "");
+    crate::ws::broadcast(
+        "sync-done",
+        json!({
+            "planId": req.plan_id, "target": target, "mode": mode,
+            "applied": applied, "partial": partial, "skipped": skipped, "errors": errors,
+        }),
+    );
     ApiResp::ok(json!({
         "applied": applied,
         "partial": partial,

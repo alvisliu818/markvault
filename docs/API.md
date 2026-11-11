@@ -125,10 +125,10 @@ MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。
 | `/api/export/exportMd` | `{path}` | 单篇 md 下载（`Content-Disposition: attachment`） |
 | `/api/export/exportNotebookMd` | `{notebook}` | 整笔记本打 zip（STORE + UTF-8 名）写入 `.markvault/export/<名>.zip`，返回 `{path,count,bytes}` |
 
-`GET /ws`：推送 `{cmd,code,msg,data}`；`cmd` ∈ `filetree-changed` / `doc-reindexed{path}` / `vt-changed` / `progress` / `index-done`。
+`GET /ws`：推送 `{cmd,code,msg,data}`；`cmd` ∈ `filetree-changed` / `doc-reindexed{path}` / `vt-changed` / `progress` / `index-done` / `sync-progress`（同步任务：planId/phase/progress/progressTotal）/ `sync-done`（applyPull 完成）。
 外部文件改动由 watcher 监听：.md 走 `reindex_one`/`unindex`，目录级事件走精确 prefix 重索引（`unindex("<dir>/")` + `reindex_prefix`），`.markvault/` 完全跳过避免自触发。
 
-## sync（v0.3+ · LiveSync 只读拉取，S1 阶段）
+## sync（v0.3+ · LiveSync 只读拉取与受控导入，S1-S4 + S5/S6）
 
 凭据**只从环境变量读取**（`MARKVAULT_SYNC_ENDPOINT / BUCKET / REGION / ACCESS_KEY / SECRET_KEY / PASSPHRASE / ID_KEY`），不落 `conf.json`、不写入响应与日志。整个模块对远端只发 `GET`/`LIST`，**没有 PUT/DELETE**。
 
@@ -139,6 +139,7 @@ MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。
 | `/api/sync/planPull` | `{limit?: 1..20}` | 下载最新 N 个分片 → PBKDF2/HKDF/AES-GCM 解密 → raw deflate → JSONL 解析；返回 `{planId, token, shards, lines, uniqueIds, parseErrors, docs[], note}`。`docs` 为元数据预览（id/type/path/size/children/dataPrefix），**不写任何文件** |
 | `/api/sync/getPlan` | `{planId}` | 后台任务的进度轮询：`{phase, progress, progressTotal, error, done, shards, skippedShards, lines, parseErrors, docsTotal, docsComplete, docsPartial, docsUncovered, chunks, docsPreview[≤50]}` |
 | `/api/sync/applyPull` | `{planId, token, target:"export"\|"import", notebook?, includePartial?}` | 校验 plan/token 且 phase=done。`export` 写 `.md` 到独立导出目录；`import` **受控导入 vault**：写到 `<notebook>/<远端相对路径>`（notebook 默认需显式传入），**只新增不覆盖**，partial 笔记默认跳过（`includePartial:true` 才导入），每个 `.md` 走 reindex + notify（文件树/FTS 立即可见），并推进同步点。不传 target 默认 `export` |
+| `/api/repo/initKey` | `{passphrase}` | 快照加密开关（SiYuan Conf.Repo.Key 风格）：口令派生 PBKDF2-HMAC-SHA256(310k) → 32B key 存 conf（`repoEncryption/repoSalt/repoKey`），快照体 AES-256-GCM 密文落盘（读取兼容旧明文）；空口令 = 关闭。密钥随 conf 落盘，信任边界为工作区文件本身 |
 
 > S3 起行为：`planPull` 是**后台任务**，立即返回 `{planId, token, phase:"preparing"}`，进度轮询 `getPlan`；默认**增量水位**（只拉 `latest-sync` 之后的分片，`skippedShards` 记录跳过数），`{full:true}` 强制全量；解密后的 chunk 写入内容寻址临时目录（`.markvault/tmp/livesync-<id>/chunks/`），applyPull 成功后清理。单分片只覆盖部分笔记，跨分片合并靠 plan 聚合多个分片的 chunk。
 

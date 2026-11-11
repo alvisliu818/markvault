@@ -1,5 +1,7 @@
 use std::fs;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
+use ring::{aead, pbkdf2};
 use sha2::{Digest, Sha256};
 
 use super::{check_writable, parse, ApiResp};
@@ -14,6 +16,8 @@ use std::sync::Arc;
 
 /// `/api/repo/*` — snapshot endpoints. Auto-snapshots happen in putFile
 /// (pre-write copy of the current content); manual snapshots are forced.
+/// When `Conf.repo_encryption` is on (see `/api/repo/initKey`), bodies are
+/// stored AES-256-GCM sealed (SiYuan Conf.Repo.Key style).
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/createSnapshot", post(create_snapshot))
@@ -21,10 +25,117 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/getSnapshot", post(get_snapshot))
         .route("/restoreSnapshot", post(restore_snapshot))
         .route("/cleanSnapshots", post(clean_snapshots))
+        .route("/initKey", post(init_key))
 }
 
 pub fn store(st: &AppState) -> SnapshotStore {
-    SnapshotStore::new(crate::conf::markvault_dir(&st.vault.root).join("repo"))
+    let (enc, key_hex) = {
+        let c = st.conf.read().unwrap();
+        (c.repo_encryption, c.repo_key.clone())
+    };
+    let enc_key = if enc && key_hex.len() == 64 {
+        let mut k = [0u8; 32];
+        if hex::decode_to_slice(&key_hex, &mut k).is_ok() {
+            Some(k)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    SnapshotStore {
+        root: crate::conf::markvault_dir(&st.vault.root).join("repo"),
+        cap: super::snapshot::DEFAULT_CAP,
+        enc_key,
+    }
+}
+
+/// AES-256-GCM seal: iv(12) | ct+tag(16).
+fn seal_body(key: &[u8; 32], plain: &[u8]) -> std::io::Result<Vec<u8>> {
+    let unbound = aead::UnboundKey::new(&aead::AES_256_GCM, key)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let k = aead::LessSafeKey::new(unbound);
+    let iv: [u8; 12] = rand::random();
+    let mut buf = plain.to_vec();
+    k.seal_in_place_append_tag(aead::Nonce::assume_unique_for_key(iv), aead::Aad::empty(), &mut buf)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let mut out = iv.to_vec();
+    out.extend_from_slice(&buf);
+    Ok(out)
+}
+
+/// Open a sealed body; `None` on auth failure / short input.
+fn open_body(key: &[u8; 32], blob: &[u8]) -> Option<Vec<u8>> {
+    if blob.len() < 12 + 16 {
+        return None;
+    }
+    let unbound = aead::UnboundKey::new(&aead::AES_256_GCM, key).ok()?;
+    let k = aead::LessSafeKey::new(unbound);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&blob[..12]);
+    let mut buf = blob[12..].to_vec();
+    let len = k
+        .open_in_place(aead::Nonce::assume_unique_for_key(nonce), aead::Aad::empty(), &mut buf)
+        .ok()?
+        .len();
+    buf.truncate(len);
+    Some(buf)
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct InitKeyReq {
+    #[serde(default)]
+    passphrase: String,
+}
+
+/// Enable snapshot encryption by deriving the repo key from a passphrase
+/// (SiYuan Conf.Repo.Key style: the derived key is persisted in conf.json so
+/// the workspace stays self-contained). An empty passphrase disables it.
+async fn init_key(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiResp {
+    if let Some(e) = check_writable(&st) {
+        return e;
+    }
+    let req: InitKeyReq = parse(&bytes);
+    // mutate the live conf in place — a clone here would be silently dropped
+    // by save_conf() (which persists the RwLock contents)
+    {
+        let mut conf = st.conf.write().unwrap();
+        if req.passphrase.trim().is_empty() {
+            conf.repo_encryption = false;
+            conf.repo_key = String::new();
+            conf.repo_salt = String::new();
+        } else {
+            let salt: [u8; 16] = rand::random();
+            let mut key = [0u8; 32];
+            pbkdf2::derive(
+                pbkdf2::PBKDF2_HMAC_SHA256,
+                NonZeroU32::new(310_000).unwrap(),
+                &salt,
+                req.passphrase.as_bytes(),
+                &mut key,
+            );
+            conf.repo_encryption = true;
+            conf.repo_salt = hex::encode(salt);
+            conf.repo_key = hex::encode(key);
+        }
+    }
+    st.save_conf();
+    let enabled = st.conf.read().unwrap().repo_encryption;
+    let key_hex = st.conf.read().unwrap().repo_key.clone();
+    if !enabled {
+        return ApiResp::ok(json!({"enabled": false}));
+    }
+    let mut key = [0u8; 32];
+    if let Err(e) = hex::decode_to_slice(&key_hex, &mut key) {
+        return ApiResp::err(-1, &format!("repo key hex: {}", e));
+    }
+    let verifier = hash_hex(&key, 8);
+    ApiResp::ok(json!({
+        "enabled": true,
+        "verifier": verifier,
+        "kdf": format!("PBKDF2-HMAC-SHA256/{}", 310_000),
+    }))
 }
 
 #[derive(Deserialize, Default)]
@@ -120,13 +231,16 @@ async fn clean_snapshots(State(st): State<Arc<AppState>>, bytes: Bytes) -> ApiRe
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot store (M11, SiYuan repo/-style, plaintext MVP).
+// Snapshot store (M11, SiYuan repo/-style).
 /// Layout: `.markvault/repo/<sha256(path)[0..16]>/<millis>-<sha256(content)[0..8]>.md`
-/// Content-addressed filenames dedupe identical revisions; per-doc cap trims
-/// the oldest. Plaintext by design for MVP — encryption is a known limitation.
+/// Content-addressed filenames dedupe identical revisions (hash over the
+/// *plaintext*), per-doc cap trims the oldest. When `enc_key` is set (S6) the
+/// stored body is AES-256-GCM sealed; reads fall back to plaintext so pre-S6
+/// snapshots keep working.
 pub struct SnapshotStore {
     root: PathBuf,
     cap: usize,
+    enc_key: Option<[u8; 32]>,
 }
 
 pub const DEFAULT_CAP: usize = 30;
@@ -144,13 +258,19 @@ fn parse_stem(stem: &str) -> Option<(i64, String)> {
 }
 
 impl SnapshotStore {
+    #[cfg(test)]
     pub fn new(root: PathBuf) -> Self {
-        SnapshotStore { root, cap: DEFAULT_CAP }
+        SnapshotStore { root, cap: DEFAULT_CAP, enc_key: None }
     }
 
     #[cfg(test)]
     pub fn with_cap(root: PathBuf, cap: usize) -> Self {
-        SnapshotStore { root, cap: cap.max(1) }
+        SnapshotStore { root, cap: cap.max(1), enc_key: None }
+    }
+
+    #[cfg(test)]
+    pub fn with_enc_key(root: PathBuf, key: [u8; 32]) -> Self {
+        SnapshotStore { root, cap: DEFAULT_CAP, enc_key: Some(key) }
     }
 
     fn dir_of(&self, path: &str) -> PathBuf {
@@ -179,7 +299,11 @@ impl SnapshotStore {
             file = dir.join(format!("{}-{}.md", millis, chash));
         }
         let id = format!("{}-{}", millis, chash);
-        fs::write(file, data)?;
+        let payload = match self.enc_key {
+            Some(ref k) => seal_body(k, data)?,
+            None => data.to_vec(),
+        };
+        fs::write(file, payload)?;
         self.trim(path)?;
         Ok(Some(id))
     }
@@ -200,13 +324,18 @@ impl SnapshotStore {
         out
     }
 
-    /// Read snapshot content by id.
+    /// Read snapshot content by id (decrypted when repo encryption is on;
+    /// legacy plaintext snapshots fall through the decrypt attempt).
     pub fn read(&self, path: &str, id: &str) -> Option<Vec<u8>> {
         // id is a `<millis>-<hash>` stem; reject path traversal
         if id.contains('/') || id.contains('\\') || id.contains("..") {
             return None;
         }
-        fs::read(self.dir_of(path).join(format!("{}.md", id))).ok()
+        let raw = fs::read(self.dir_of(path).join(format!("{}.md", id))).ok()?;
+        match self.enc_key {
+            Some(ref k) => Some(open_body(k, &raw).unwrap_or(raw)),
+            None => Some(raw),
+        }
     }
 
     /// Keep only the newest `cap` revisions for a doc.
@@ -303,6 +432,29 @@ mod tests {
         st.clean("a.md").unwrap();
         assert_eq!(st.list("a.md").len(), 0);
         assert_eq!(st.list("b.md").len(), 1);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_encrypted_snapshot_roundtrip_and_legacy_fallback() {
+        let dir = std::env::temp_dir().join(format!(
+            "mv-snap-enc-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let key: [u8; 32] = rand::random();
+        let st = SnapshotStore::with_enc_key(dir.clone(), key);
+        let id = st.snapshot("sec.md", b"secret body", false).unwrap().unwrap();
+        // stored body must NOT be plaintext
+        let raw = fs::read(dir.join(hash_hex(b"sec.md", 16)).join(format!("{}.md", id))).unwrap();
+        assert_ne!(raw, b"secret body");
+        assert!(raw.len() > b"secret body".len()); // iv + tag overhead
+        // read decrypts back
+        assert_eq!(st.read("sec.md", &id).unwrap(), b"secret body");
+        // legacy plaintext file (pre-S6) still readable when encryption is on
+        let legacy_id = "1794000000000-legacyxx";
+        fs::write(dir.join(hash_hex(b"sec.md", 16)).join(format!("{}.md", legacy_id)), b"old plain").unwrap();
+        assert_eq!(st.read("sec.md", legacy_id).unwrap(), b"old plain");
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -50,6 +50,7 @@ async fn get_conf(State(st): State<Arc<AppState>>) -> ApiResp {
         "weightAttr": conf.weight_attr,
         "ignorePatterns": conf.ignore_patterns,
         "theme": conf.theme,
+        "repoEncryption": conf.repo_encryption,
     });
     ApiResp::ok(json!({"conf": data, "workspace": st.workspace.display().to_string()}))
 }
