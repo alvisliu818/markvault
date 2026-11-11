@@ -116,15 +116,15 @@
 3. **前端同步 UI polish**（进度条、错误态；核心 UI 已随 S5 交付）
 4. **出 0.3.0 安装包**固化成果
 
-### LiveSync 后续待办（2026-11-11 暂停点）
+### LiveSync 后续待办（2026-11-11 暂停点）—— ✅ 2026-11-12 收尾完成
 
-S1-S7 主体已交付并推送（至 `891ca68`，34/34 单测、零 warning、全量首拉实测通过）。暂停时正在做「applyPull 后台化 + 批量 reindex」性能优化——代码已写好（工作区**未提交**，34/34 单测过、30 分片实机导入已生效 51 篇），续做顺序：
+S1-S7 主体已交付并推送（至 `891ca68`）。暂停点的收尾清单执行结果：
 
-1. **修 getPlan 缺 apply 字段**：`get_plan` 的 json! 组装漏了 `"apply": inner.apply`，导致导入进度轮询读不到（验证输出全为 None）——一行修复。
-2. **重验导入进度**：`planPull(full, limit=30)` → `applyPull(import, notebook=…)` → `getPlan` 轮询 `apply.phase`（writing→reindexing→done）。
-3. **提交工作区改动**：applyPull 后台化（`spawn_blocking` + `ApplyState` + `rebuild_all_ext` 批量索引）+ 前端 api/settings 改动，验证后一并提交。
-4. **清理测试库**：`testvault/livesync/`（51 篇明文导入笔记）、`.markvault/sync/livesync/latest-sync` 水位、`repo/` 加密测试快照；`_tmp/new_apply.rs`、`_tmp/s4_perf.py` 探针。
-5. **补 memory 日志**：applyPull 后台化过程与坑（getPlan 漏字段；save_conf 克隆陷阱已在 S6 记过）。
+1. [x] **修 getPlan 缺 apply 字段**：组装抽为 `plan_summary` 补 `"apply": ApplyState`，单测 `plan_summary_includes_apply_state`（内核 35/35）。
+2. [x] **重验导入进度**：跳过实机重跑（口令按纪律不存储，未再次提供）；修复已由单测覆盖，管线本身 S4/S5 实机已验。`_tmp/l2_verify.py` 备好实机脚本，待口令即可跑 `planPull(30)→applyPull(import)→getPlan 轮询 apply.phase`。
+3. [x] **提交工作区改动**：applyPull 后台化（`spawn_blocking` + `ApplyState` + `apply_bump` + 批量 `rebuild_all_ext`），零 warning。
+4. [x] **清理测试库**：51 篇明文导入笔记 → `.markvault/trash/cleanup_*_livesync`（trash 可恢复）；水位 `sync/livesync/`、加密快照 `.markvault/repo/`、`_tmp/new_apply.rs`/`s4_perf.py` 探针已删；`.gitignore` 补 `testvault/livesync/`、`testvault/repo/` 防泄漏。
+5. [x] **补 memory 日志**：见 memory/2026-11-11.md 收尾记录。
 
 已量化/待查：
 

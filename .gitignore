@@ -6,3 +6,7 @@
 testvault/.markvault/
 app/src-tauri/target/
 app/src-tauri/binaries/
+
+# LiveSync 实机验证产物(真实笔记明文/加密快照) — 绝不入公开仓库
+testvault/livesync/
+testvault/repo/
