@@ -124,7 +124,7 @@ L6 双向(远期)   三方合并 + 冲突副本 + 原子落盘 + 忽略规则   
 | 阶段 | 内容 | 依赖 |
 |---|---|---|
 | **S1** | JSONL 文档类型解析、按 `_id/_rev` 取最新、**文档层 E2EE v2 解密**，端到端读出 1 篇笔记 | 侦察报告的 A 阶段；**部分交付**：内核 `/api/sync/*` 四端点 + 分片解密/JSONL 元数据预览已实机验证，`%=` 解密原语已备；正文还原因 chunk 行未定位留到 S2 |
-| **S2** | ID 派生密钥还原路径/文档 ID、`v3-rabin-karp` chunk 按 `children` 合并成完整 `.md` | S1 |
+| **S2** | ID 派生密钥还原路径/文档 ID、`v3-rabin-karp` chunk 按 `children` 合并成完整 `.md` | S1；**部分交付**：chunk 行格式（`~h:+<id>\u{1f}<内容>`）已确认并实现，`applyPull(export)` 已能写出真实 `.md`（实机 9 篇）；跨分片合并与 ID 校验留到 S3/增量水位 |
 | **S3** | `getSourceState` / `planPull` 预览契约 + `latest-sync` 同步点（纯只读） | S2 |
 | **S4** | `applyPull` 的 `export` / `index` 两种应用目标 + 原子写（临时文件 + rename） | S3 |
 | **S5** | 增量水位（按时间戳只拉新分片）、单锁、幂等跳过、退避、WS 进度 | S4 |

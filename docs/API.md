@@ -139,7 +139,7 @@ MountItem：`{uid, kind:"file"|"doc"|"notebook", name, path, children[]}`。
 | `/api/sync/planPull` | `{limit?: 1..20}` | 下载最新 N 个分片 → PBKDF2/HKDF/AES-GCM 解密 → raw deflate → JSONL 解析；返回 `{planId, token, shards, lines, uniqueIds, parseErrors, docs[], note}`。`docs` 为元数据预览（id/type/path/size/children/dataPrefix），**不写任何文件** |
 | `/api/sync/applyPull` | `{planId, token, target:"export"\|"index"}` | 校验 plan/token；`export` 仅把 manifest 写入 `.markvault/export/livesync-<时间戳>/` 并推进同步点；`index` 返回「S2 未实现」。**不写 `.md`、不覆盖 vault** |
 
-> S1 现状：分片解密 + JSONL 解析已实机验证；分片内只发现 `f:` 元数据文档，`children` 指向 `h:+` chunk 但 chunk 文档未定位，故**不伪造 Markdown 正文**。文档层 `%=` 字段解密原语已实现，供 S2 使用。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md) 与 [sync-architecture.md](sync-architecture.md)。
+> S2 现状：journal chunk 行格式已确认并解析——`~h:+<64hex>` + `\u{1f}` 分隔符 + 内容（分片层解密后为明文，未加密字段原样返回）。`planPull` 返回每篇 `chunksHit/chunksMissing/bodyBytes` 且 `parseErrors` 归零；`applyPull(export)` 把 chunk 命中完整/部分的笔记写成 `.md` 到导出目录（不写 vault）。单分片只覆盖部分笔记，跨分片合并与增量水位属 S3。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md) 与 [sync-architecture.md](sync-architecture.md)。
 
 ## Tauri 壳 IPC（非 HTTP，v0.3）
 

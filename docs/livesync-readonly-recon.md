@@ -67,6 +67,17 @@
 
 **S2 关键线索**：合并 166 个分片后共 6784 个文档，`_id` 全部为 `f:` 前缀、`type` 仅 `plain`/`newnote`，`children` 指向 `h:+` chunk 但 **chunk 文档未出现在分片中**，`eden` 为空；最新分片 65 行里有 **21 行不是 JSON**（`parseErrors`）——chunk/内联数据很可能藏在这些非 JSON 行或另一种记录编码里。S2 应先定位这 21 行的格式，再按 `children` 拼接。另：这些分片合计约 775 MB，增量水位（只拉新分片）比全量下载更重要。
 
+### S2 实机结果（2026-11-11）
+
+**chunk 行格式确认**：`~h:+<64hex>` + **US 分隔符（`\u{1f}`）** + 内容。分片层解密后 chunk 内容为**明文**（本库的加密只在分片层，内容不再二次加密；未加密字段经 `decrypt_field` 原样返回）。此前 21 个「parseErrors」正是这些 chunk 行。
+
+内核侧实现（`parse_chunk_row` + chunk 映射 + `children` 拼接）：
+
+- `planPull(limit=1)`：65 行 → 21 chunk 行全部解析、**parseErrors = 0**；44 篇主文档中 9 篇部分命中（`chunksHit/chunksMissing/bodyBytes` 逐篇返回）、35 篇未覆盖（chunk 在其它分片）。
+- `applyPull(export)`：**导出 9 个 `.md`（12,350 字节，UTF-8 校验通过）** 到 `.markvault/export/livesync-<ts>/`，manifest 记录 applied/partial/skipped；vault 本体未动。测试后明文导出已删除。
+
+**仍未闭合（S3+）**：单分片只覆盖部分笔记——完整还原需要跨分片合并 + 增量水位（只拉新分片、按 `latest-sync` 跳过已应用）；ID 恢复码仍未用到（chunk ID 校验是可选项，还原只依赖 `passphrase + pbkdf2salt`）。
+
 ## 5. 工程注意
 
 - **绝不入库**：口令、恢复码、accessKey/secretKey、endpoint、bucket 名。实现时应从环境变量或本机 Obsidian 插件配置读取，仓库内只放格式与算法说明。
