@@ -90,7 +90,7 @@
 
 | 任务 | 状态 | 说明与依赖 |
 |---|---|---|
-| **LiveSync 对接** | 侦察完成 / 只读 MVP 待实现 | **实际后端是 MinIO/S3 journal sync（非 CouchDB）**：`<毫秒>-docs.jsonl.gz` 加密分片 + `sync-parameters`。当前插件 1.0.47：E2EE v2、路径混淆、ID 派生 v1（恢复码）。已验证只读 LIST + PBKDF2(310k)→HKDF→AES-GCM 分片解密 → raw deflate → JSONL 全链路（口令有效）；配置层由另一把口令保护、只读拉取不需要。剩余：JSONL 文档解析、文档层 E2EE v2 解密、ID key 路径还原 + chunk 合并、集成形态定案。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md) |
+| **LiveSync 对接** | 侦察完成 / 只读 MVP 待实现 | **实际后端是 MinIO/S3 journal sync（非 CouchDB）**：`<毫秒>-docs.jsonl.gz` 加密分片 + `sync-parameters`。当前插件 1.0.47：E2EE v2、路径混淆、ID 派生 v1（恢复码）。已验证只读 LIST + PBKDF2(310k)→HKDF→AES-GCM 分片解密 → raw deflate → JSONL 全链路（口令有效）；配置层由另一把口令保护、只读拉取不需要。剩余：JSONL 文档解析、文档层 E2EE v2 解密、ID key 路径还原 + chunk 合并、集成形态定案。详见 [livesync-readonly-recon.md](livesync-readonly-recon.md)；已参考思源内核同步实现产出 [sync-architecture.md](sync-architecture.md)（接口契约 + S1-S7 实现顺序，红线：只读阶段不回写 `.md`） |
 | **Tauri mobile 构建** | 未做 | Android/iOS 打包需对应 SDK 环境（本机 Windows 只能走 Android 路线）；SPA 响应式已交付，此项纯构建配置层 |
 | **petal / repo 加密** | 未做 | 快照仓库（repo/）与插件存储均为 plaintext MVP；需设计密钥管理（思源是快照口令派生） |
 | **petal 集市** | 未做 | 插件市场/分发（列表、下载、更新），生态成型后再做；当前只支持本地安装 |
@@ -112,7 +112,7 @@
 ### 建议顺序
 
 1. **壳内人工点验剩余 7 项**（自动项已完成并产出修复轮）
-2. **LiveSync 只读拉取 MVP**（前置确认已闭环：E2E 开启、数据口令与 ID 恢复码已验证；分片解密链路已打通，接着做 JSONL 解析 + 文档层解密，详见侦察报告）
+2. **LiveSync 只读拉取 MVP**（前置确认已闭环：E2E 开启、数据口令与 ID 恢复码已验证；分片解密链路已打通，接着按 [sync-architecture.md](sync-architecture.md) 的 S1「JSONL 解析 + 文档层解密」→ S2 → S3 推进）
 3. **出 0.3.0 安装包**固化成果
 
 改动前先读 docs/ARCHITECTURE.md 的数据流与设计决策节。

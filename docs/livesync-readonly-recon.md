@@ -54,7 +54,7 @@
 | B | 解析 JSONL 文档类型（`plain` / `leaf` / `chunkpack` / `note` / `versioninfo` 等），按 `_id`/`_rev` 取最新版 | 待做 |
 | C | **文档层 E2EE v2 解密**：`decryptDataV2()` 对应实现（分片层与文档层是两层加密） | 待做 |
 | D | **路径混淆还原 + chunk 合并**：用 ID 派生密钥还原文档 ID/路径，`v3-rabin-karp` 分块按 `children` 还原为完整 .md | 待做 |
-| E | 集成形态定案：① 独立 CLI 导出到 vault 目录；② 内核 `/api/sync/*` 只读端点；③ 前端只读浏览面板 | 待定 |
+| E | 集成形态定案：① 独立 CLI 导出到 vault 目录；② 内核 `/api/sync/*` 只读端点；③ 前端只读浏览面板 | 方案已出，见 [sync-architecture.md](sync-architecture.md)（默认内核 API + 导出独立目录，CLI 作薄封装）；仍待确认 |
 | F | 增量策略：按时间戳只拉新分片 + milestone 检查点，避免每次全量 168 个对象 | 待做 |
 
 **建议**：先做 B + C（把一个分片里的笔记标题/正文解出来，端到端跑通 1 篇），再定 E 的集成形态；D 的 chunk 合并可以放在「单篇可读」之后。
