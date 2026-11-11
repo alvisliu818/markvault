@@ -1,6 +1,17 @@
 import { api } from "../api";
 import { el, toast, escapeHtml } from "../ui";
 
+const SYNC_PHASE_ZH: Record<string, string> = {
+  preparing: "准备中",
+  listing: "列清单",
+  downloading: "下载分片",
+  parsing: "解析",
+  done: "完成",
+  error: "失败",
+  writing: "写入 vault",
+  reindexing: "重建索引",
+};
+
 interface ConfData {
   conf: {
     port: number;
@@ -230,6 +241,7 @@ export async function showSettings() {
     }
     const syncBody = status.configured
       ? `<div class="set-hint" id="sync-state">状态加载中…</div>
+         <div class="sync-progress" id="sync-progress" hidden><div class="sync-progress-fill" id="sync-progress-fill"></div></div>
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
            <button class="btn" id="sync-refresh">刷新远端状态</button>
            <button class="btn" id="sync-plan">拉取计划（增量）</button>
@@ -254,9 +266,26 @@ export async function showSettings() {
     );
     if (!status.configured) return;
     const stateEl = () => dialog.querySelector("#sync-state") as HTMLElement | null;
-    const setState = (msg: string) => {
+    const setState = (msg: string, kind: "info" | "ok" | "error" = "info") => {
       const el = stateEl();
-      if (el) el.textContent = msg;
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.toggle("sync-error", kind === "error");
+      el.classList.toggle("sync-ok", kind === "ok");
+    };
+    const progressEl = () => dialog.querySelector("#sync-progress") as HTMLElement | null;
+    const fillEl = () => dialog.querySelector("#sync-progress-fill") as HTMLElement | null;
+    const setProgress = (done: number, total: number, phase: string) => {
+      const bar = progressEl();
+      if (!bar) return;
+      bar.hidden = false;
+      const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+      (fillEl() as HTMLElement).style.width = pct + "%";
+      setState(`${SYNC_PHASE_ZH[phase] || phase} ${done}/${total}（${pct}%）`);
+    };
+    const hideProgress = () => {
+      const el = progressEl();
+      if (el) el.hidden = true;
     };
     let lastPlan: { planId: string; token: string } | null = null;
     const busy = (msg: string) => {
@@ -277,9 +306,9 @@ export async function showSettings() {
         try {
           busy("刷新远端状态…");
           const s = await api.syncGetSourceState();
-          setState(`远端 ${s.shards} 分片 / ${(s.bytes / 1048576).toFixed(1)} MB · 最新 ${s.latestShard.slice(0, 24)}… · 本地水位 ${s.localSyncPoint || "无"}`);
+          setState(`远端 ${s.shards} 分片 / ${(s.bytes / 1048576).toFixed(1)} MB · 最新 ${s.latestShard.slice(0, 24)}… · 本地水位 ${s.localSyncPoint || "无"}`, "ok");
         } catch (e) {
-          setState("刷新失败: " + (e as Error).message);
+          setState("刷新失败: " + (e as Error).message, "error");
         } finally {
           idle();
         }
@@ -294,20 +323,22 @@ export async function showSettings() {
           for (;;) {
             const s = await api.syncGetPlan(p.planId);
             if (s.done) {
+              hideProgress();
               if (s.error) {
-                setState("拉取失败: " + s.error);
+                setState("拉取失败: " + s.error, "error");
                 toast("拉取失败: " + s.error);
               } else {
-                setState(`拉取完成：${s.shards} 分片（跳过 ${s.skippedShards}）· ${s.lines} 行 · ${s.parseErrors} 解析错误 · 笔记 ${s.docsTotal}（完整 ${s.docsComplete} / 部分 ${s.docsPartial} / 未覆盖 ${s.docsUncovered}）`);
+                setState(`拉取完成：${s.shards} 分片（跳过 ${s.skippedShards}）· ${s.lines} 行 · ${s.parseErrors} 解析错误 · 笔记 ${s.docsTotal}（完整 ${s.docsComplete} / 部分 ${s.docsPartial} / 未覆盖 ${s.docsUncovered}）`, "ok");
                 toast(`拉取完成：笔记 ${s.docsTotal} 篇`);
               }
               break;
             }
-            setState(`${s.phase} ${s.progress}/${s.progressTotal} …`);
+            setProgress(s.progress, s.progressTotal, s.phase);
             await new Promise((r) => setTimeout(r, 1000));
           }
         } catch (e) {
-          setState("拉取失败: " + (e as Error).message);
+          hideProgress();
+          setState("拉取失败: " + (e as Error).message, "error");
         } finally {
           idle();
         }
@@ -325,16 +356,34 @@ export async function showSettings() {
         const includePartial = (dialog.querySelector("#sync-partial") as HTMLInputElement).checked;
         try {
           busy(target === "import" ? "导入中…" : "导出中…");
-          const r = (await api.syncApplyPull({ planId: lastPlan.planId, token: lastPlan.token, target, notebook, includePartial })) as Record<string, unknown>;
-          if (target === "import") {
-            setState(`导入完成：新增 ${r.imported} · 已存在跳过 ${r.skippedExisting} · 部分跳过 ${r.skippedPartial} · 错误 ${r.errors}`);
-            toast(`导入完成：新增 ${r.imported} 篇笔记`);
-          } else {
-            setState(`导出完成：${r.applied} 篇 → ${String(r.manifest).slice(0, 60)}…`);
-            toast(`导出完成：${r.applied} 篇`);
+          await api.syncApplyPull({ planId: lastPlan.planId, token: lastPlan.token, target, notebook, includePartial });
+          // applyPull 已后台化（内核 spawn_blocking）：轮询 getPlan.apply 直到 done/error
+          for (;;) {
+            const s = await api.syncGetPlan(lastPlan.planId);
+            const a = s.apply;
+            if (!a) throw new Error("apply 状态缺失（内核版本过旧或已被清理）");
+            if (a.done || a.phase === "error") {
+              hideProgress();
+              if (a.phase === "error" || a.error) {
+                setState(`${target === "import" ? "导入" : "导出"}失败: ${a.error || "unknown"}`, "error");
+                toast("同步应用失败: " + (a.error || "unknown"));
+                break;
+              }
+              if (target === "import") {
+                setState(`导入完成：新增 ${a.imported} · 已存在跳过 ${a.skippedExisting} · 部分跳过 ${a.skippedPartial} · 空 ${a.skippedEmpty} · 不安全路径 ${a.skippedUnsafe} · 错误 ${a.errors}`, "ok");
+                toast(`导入完成：新增 ${a.imported} 篇笔记`);
+              } else {
+                setState(`导出完成：${a.imported} 篇 → ${String(a.exportDir || "").slice(0, 60)}`, "ok");
+                toast(`导出完成：${a.imported} 篇`);
+              }
+              break;
+            }
+            setProgress(a.progress, a.total, a.phase);
+            await new Promise((r) => setTimeout(r, 1000));
           }
         } catch (e) {
-          setState(target + " 失败: " + (e as Error).message);
+          hideProgress();
+          setState(target + " 失败: " + (e as Error).message, "error");
         } finally {
           idle();
         }

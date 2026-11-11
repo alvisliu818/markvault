@@ -1,6 +1,6 @@
 # markvault
 
-Rust 内核 + Markdown 存储的笔记软件。参考 [思源笔记](https://github.com/siyuan-note/siyuan) 的内核分离架构与 [Obsidian](https://obsidian.md) 的纯 Markdown 存储，并整合了 [obsidian-virtual-tree](https://github.com/) 与 [siyuan-virtual-tree](https://github.com/) 两个虚拟文档树插件的功能，以及思源浏览器插件的剪藏/书签数据面。
+Rust 内核 + Markdown 存储的笔记软件。版本历史见 [CHANGELOG.md](CHANGELOG.md)。参考 [思源笔记](https://github.com/siyuan-note/siyuan) 的内核分离架构与 [Obsidian](https://obsidian.md) 的纯 Markdown 存储，并整合了 [obsidian-virtual-tree](https://github.com/) 与 [siyuan-virtual-tree](https://github.com/) 两个虚拟文档树插件的功能，以及思源浏览器插件的剪藏/书签数据面。
 
 **当前版本 v0.3**：M6 内嵌浏览器 + M11 主体（关系图谱 / 快照历史 / 多工作区 / 插件系统 / 响应式）+ watcher 地基返修已交付（内核单测 26/26、E2E 41/41、NSIS 安装包）。迭代总结见 [docs/v0.3-iteration-report.html](docs/v0.3-iteration-report.html)，后续计划见 [docs/TASKS.md](docs/TASKS.md)。
 

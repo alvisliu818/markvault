@@ -391,3 +391,21 @@ body {
   .mv-right.mobile-open { transform: translateX(0); }
   .mv-dock-resizer { display: none; }
 }
+
+/* ---- sync progress & state ---- */
+.sync-progress {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.sync-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  border-radius: 4px;
+  transition: width .3s ease;
+}
+#sync-state.sync-error { color: var(--danger); }
+#sync-state.sync-ok { color: var(--ok); }

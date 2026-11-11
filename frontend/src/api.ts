@@ -118,6 +118,27 @@ export interface Bookmark {
   tags: string[];
 }
 
+/** Background applyPull state from /api/sync/getPlan (kernel ApplyState) */
+export interface SyncApplyState {
+  target: string;
+  notebook: string;
+  includePartial: boolean;
+  phase: string; // writing | reindexing | done | error
+  progress: number;
+  total: number;
+  imported: number;
+  partial: number;
+  skippedExisting: number;
+  skippedPartial: number;
+  skippedEmpty: number;
+  skippedUnsafe: number;
+  errors: number;
+  bodyBytesTotal: number;
+  exportDir: string | null;
+  error: string | null;
+  done: boolean;
+}
+
 export interface HistoryEntry {
   url: string;
   title: string;
@@ -268,6 +289,8 @@ export const api = {
       docsPartial: number;
       docsUncovered: number;
       chunks: number;
+      /** background applyPull state (applyPull 后台化后经此轮询) */
+      apply: SyncApplyState | null;
     }>("/api/sync/getPlan", { planId }),
   syncApplyPull: (p: { planId: string; token: string; target: string; notebook?: string; includePartial?: boolean }) =>
     post<Record<string, unknown>>("/api/sync/applyPull", p),
