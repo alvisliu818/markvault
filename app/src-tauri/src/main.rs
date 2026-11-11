@@ -81,7 +81,15 @@ fn main() {
                 let _ = child.kill();
                 return Err("kernel did not start in time".into());
             }
-            let ws = workspace.to_string_lossy().to_string();
+            // Normalize exactly like workspace::norm() (canonicalize -> \\?\ form).
+            // The startup instance used to be registered with the raw env path,
+            // so ws_switch() back to the initial vault never matched it and
+            // spawned a duplicate kernel (found during v0.3 shell verification).
+            let ws = workspace
+                .canonicalize()
+                .unwrap_or_else(|_| workspace.clone())
+                .to_string_lossy()
+                .to_string();
             app.state::<WorkspacePool>().instances.lock().unwrap().push(
                 workspace::Instance {
                     workspace: ws.clone(),
@@ -109,11 +117,17 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Only the *main* window owns the kernel pool. Browser tabs are
+            // separate WebviewWindows; destroying one must not kill every
+            // kernel instance (v0.3 shell verification: closing a tab made all
+            // HTTP APIs fail with "Failed to fetch").
             if let tauri::WindowEvent::Destroyed = event {
-                window
-                    .app_handle()
-                    .state::<WorkspacePool>()
-                    .kill_all();
+                if window.label() == "main" {
+                    window
+                        .app_handle()
+                        .state::<WorkspacePool>()
+                        .kill_all();
+                }
             }
         })
         .run(tauri::generate_context!())

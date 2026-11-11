@@ -166,61 +166,103 @@ fn open_tab(app: &AppHandle, st: &BrowserState, tab_id: &str, url: &str) -> Resu
     Ok(())
 }
 
-#[tauri::command]
-pub fn browser_open(
-    app: AppHandle,
-    st: State<'_, BrowserState>,
-    tab_id: String,
-    url: String,
-) -> Result<(), String> {
-    open_tab(&app, &st, &tab_id, &url)
+/// Dispatch window work onto Tauri's main thread from an **async** command.
+///
+/// A synchronous command occupies the main thread, while WebView2 creation
+/// (`WebviewWindowBuilder::build()`) needs that same thread to pump messages —
+/// calling it inline deadlocks the whole IPC channel. Found during v0.3 shell
+/// verification: `browser_open` froze every subsequent command, with or without
+/// a CDP debugger attached. Async commands run off the main thread, so the
+/// queued closure can be serviced normally.
+async fn on_main<F, T>(app: &AppHandle, f: F) -> Result<T, String>
+where
+    F: FnOnce(&AppHandle) -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let a = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f(&a));
+    })
+    .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .unwrap_or_else(|_| Err("main-thread dispatch failed".into()))
+    })
+    .await
+    .map_err(|e| format!("join: {}", e))?
 }
 
 #[tauri::command]
-pub fn browser_navigate(
-    app: AppHandle,
-    st: State<'_, BrowserState>,
-    tab_id: String,
-    url: String,
-) -> Result<(), String> {
-    let label = label_of(&tab_id);
-    match app.get_webview_window(&label) {
-        Some(w) => {
-            let parsed: Url = url.parse().map_err(|e| format!("invalid url {}: {}", url, e))?;
-            w.navigate(parsed).map_err(|e| e.to_string())
+pub async fn browser_open(app: AppHandle, tab_id: String, url: String) -> Result<(), String> {
+    on_main(&app, move |a| {
+        let st = a.state::<BrowserState>();
+        open_tab(a, &st, &tab_id, &url)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn browser_navigate(app: AppHandle, tab_id: String, url: String) -> Result<(), String> {
+    on_main(&app, move |a| {
+        let label = label_of(&tab_id);
+        match a.get_webview_window(&label) {
+            Some(w) => {
+                let parsed: Url = url.parse().map_err(|e| format!("invalid url {}: {}", url, e))?;
+                w.navigate(parsed).map_err(|e| e.to_string())
+            }
+            None => {
+                let st = a.state::<BrowserState>();
+                open_tab(a, &st, &tab_id, &url)
+            }
         }
-        None => open_tab(&app, &st, &tab_id, &url),
-    }
+    })
+    .await
 }
 
 /// back/forward/reload/stop — page-context history ops on the webview
 #[tauri::command]
-pub fn browser_act(app: AppHandle, tab_id: String, action: String) -> Result<(), String> {
-    let label = label_of(&tab_id);
-    let w = app.get_webview_window(&label).ok_or("tab not found")?;
-    let js = match action.as_str() {
-        "back" => "history.back()",
-        "forward" => "history.forward()",
-        "reload" => "location.reload()",
-        "stop" => "window.stop()",
-        other => return Err(format!("unknown action {}", other)),
-    };
-    w.eval(js).map_err(|e| e.to_string())
+pub async fn browser_act(app: AppHandle, tab_id: String, action: String) -> Result<(), String> {
+    on_main(&app, move |a| {
+        let label = label_of(&tab_id);
+        let w = a
+            .get_webview_window(&label)
+            .ok_or_else(|| "tab not found".to_string())?;
+        let js = match action.as_str() {
+            "back" => "history.back()",
+            "forward" => "history.forward()",
+            "reload" => "location.reload()",
+            "stop" => "window.stop()",
+            other => return Err(format!("unknown action {}", other)),
+        };
+        w.eval(js).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn browser_close(app: AppHandle, tab_id: String) -> Result<(), String> {
-    let label = label_of(&tab_id);
-    let w = app.get_webview_window(&label).ok_or("tab not found")?;
-    w.close().map_err(|e| e.to_string())
+pub async fn browser_close(app: AppHandle, tab_id: String) -> Result<(), String> {
+    on_main(&app, move |a| {
+        let label = label_of(&tab_id);
+        let w = a
+            .get_webview_window(&label)
+            .ok_or_else(|| "tab not found".to_string())?;
+        w.close().map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn browser_focus(app: AppHandle, tab_id: String) -> Result<(), String> {
-    let label = label_of(&tab_id);
-    let w = app.get_webview_window(&label).ok_or("tab not found")?;
-    let _ = w.unminimize();
-    w.set_focus().map_err(|e| e.to_string())
+pub async fn browser_focus(app: AppHandle, tab_id: String) -> Result<(), String> {
+    on_main(&app, move |a| {
+        let label = label_of(&tab_id);
+        let w = a
+            .get_webview_window(&label)
+            .ok_or_else(|| "tab not found".to_string())?;
+        let _ = w.unminimize();
+        w.set_focus().map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
