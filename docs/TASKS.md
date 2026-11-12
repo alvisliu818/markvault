@@ -114,7 +114,7 @@
 1. [x] **LiveSync 后续待办**（2026-11-12 收尾完成，见下节）
 2. **壳内人工点验剩余 7 项**：可自动化的 4 项（E1/F1/B7-web/D2-web）已由 `frontend/e2e/manual7.mjs` 自动化（8/8 PASS，2026-11-12）；壳内人工项剩 C1(vault 对话框)/C2(开机自启)/B10(严格CSP)/B7·D2·E1·F1 壳内抽查
 3. [x] **前端同步 UI polish**（2026-11-12：阶段中文化进度条、applyPull 后台化轮询修复（getPlan.apply）、成功/失败着色；dummy 凭据实测错误态截图 _e2e/m7_sync_polish.png）
-4. [~] **出 0.3.0 安装包**（2026-11-12 暂缓，用户确认先不兜底）：版本号已对齐 0.3.0、CHANGELOG.md 就绪、sidecar 内核 release 已备（`target/release/markvault-kernel.exe` → `app/src-tauri/binaries/markvault-kernel-x86_64-pc-windows-msvc.exe`）。**卡点 = 杀软锁定 proc-macro DLL**：`zerovec_derive.dll: LoadLibraryExW failed: os error 32 (retried 5 times)` → 级联 "can't find crate for yoke/zerovec/phf/tauri/serde"，tauri-cli 安装与 app release 构建均反复中招（-j2、复用 artifacts 均无效）。续做：给 `%CARGO_HOME%`、`app/src-tauri/target`、`%TEMP%/cargo-install*` 加杀软排除后跑 `CARGO_HOME=<临时> cargo install tauri-cli --locked` → `cargo tauri build`（tauri.conf 已配 NSIS+externalBin+图标）
+4. [x] **出 0.3.0 安装包**（2026-11-12 完成）：杀软排除后全链路通过——tauri-cli v2.12.4（官方源+临时 CARGO_HOME）→ `cargo tauri build` → **`app/src-tauri/target/release/bundle/nsis/markvault_0.3.0_x64-setup.exe`（6.97 MiB）**；静默安装验证 app+内核 sidecar+uninstall 齐全、安装版实跑拉起捆绑内核（随机端口）、/S 卸载干净。复跑口令：`cargo build --release -p markvault-kernel` → 拷 `app/src-tauri/binaries/markvault-kernel-x86_64-pc-windows-msvc.exe` → `cargo tauri build`
 
 ### LiveSync 后续待办（2026-11-11 暂停点）—— ✅ 2026-11-12 收尾完成
 

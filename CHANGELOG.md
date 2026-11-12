@@ -45,9 +45,11 @@
 - **红线保持**：远端只 GET/LIST，无 PUT/DELETE；凭据仅环境变量，不入库不入日志
 
 ### 打包（M10）
-- tauri-cli NSIS 安装包（sidecar 内核 externalBin）；版本号对齐 0.3.0
+- **NSIS 安装包发布**：`markvault_0.3.0_x64-setup.exe`（6.97 MiB，sidecar 内核捆绑），静默安装/卸载实测通过
+- tauri-cli v2.12.4（官方源安装，杀软排除 proc-macro DLL 后）
 - 同步 UI polish：阶段中文化进度条、apply 轮询修复（getPlan.apply）、成功/失败着色
-- 壳内点验：自动 41 项全绿；人工项 C1/C2/B10/B7/D2/E1/F1（见 docs/v0.3-shell-verification.md）
+- 壳内点验：17 自动项 + shell_manual 11 项（C2/B10/B7）+ manual7 8 项全绿，**仅剩 C1 人工**（docs/v0.3-shell-verification.md）
+- watcher 抑制闸（bulk_apply）：LiveSync 导入写入期间停机，消除双重索引与 WS 风暴
 
 ## 0.2.0 — 2026-11-11
 
